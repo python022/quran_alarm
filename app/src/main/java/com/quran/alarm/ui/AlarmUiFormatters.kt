@@ -67,4 +67,32 @@ object AlarmUiFormatters {
             else -> "المنبه خلال $hours ساعة و $minutes دقيقة"
         }
     }
+
+    fun formatCurrentDate(timeMillis: Long = System.currentTimeMillis()): String {
+        val cal = Calendar.getInstance().apply { this.timeInMillis = timeMillis }
+        val dayNames = mapOf(
+            Calendar.SATURDAY to "السبت",
+            Calendar.SUNDAY to "الأحد",
+            Calendar.MONDAY to "الاثنين",
+            Calendar.TUESDAY to "الثلاثاء",
+            Calendar.WEDNESDAY to "الأربعاء",
+            Calendar.THURSDAY to "الخميس",
+            Calendar.FRIDAY to "الجمعة"
+        )
+        val monthNames = arrayOf(
+            "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+            "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+        )
+        val dayOfWeek = dayNames[cal.get(Calendar.DAY_OF_WEEK)] ?: ""
+        val dayOfMonth = String.format("%02d", cal.get(Calendar.DAY_OF_MONTH))
+        val month = monthNames[cal.get(Calendar.MONTH)]
+        return "$dayOfWeek $dayOfMonth $month"
+    }
+
+    fun formatCurrentDigitalTime(timeMillis: Long = System.currentTimeMillis()): String {
+        val cal = Calendar.getInstance().apply { this.timeInMillis = timeMillis }
+        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val minute = cal.get(Calendar.MINUTE)
+        return String.format("%02d:%02d", hour, minute)
+    }
 }
