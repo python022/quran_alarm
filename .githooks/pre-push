@@ -1,0 +1,19 @@
+#!/bin/sh
+# Hook to prevent direct pushes to the main branch
+# منبه القرآن الكريم - حظر الدفع المباشر للفرع الرئيسي
+
+current_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+while read local_ref local_sha remote_ref remote_sha
+do
+    if [ "$remote_ref" = "refs/heads/main" ]; then
+        echo "=================================================================="
+        echo "❌ خطأ: حظر الدفع المباشر للفرع الرئيسي (main)!"
+        echo "قواعد المشروع تفرض حماية فرع main وعدم التعديل عليه مباشرة."
+        echo "يرجى إنشاء فرع جانبي مخصص (مثل: feat/... أو fix/...) وتقديم التعديلات عبر طلب دمج (Pull Request)."
+        echo "=================================================================="
+        exit 1
+    fi
+done
+
+exit 0
