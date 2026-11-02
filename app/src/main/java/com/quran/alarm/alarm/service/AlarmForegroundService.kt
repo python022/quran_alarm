@@ -12,9 +12,9 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import com.quran.alarm.MainActivity
 import com.quran.alarm.R
 import com.quran.alarm.alarm.audio.SmartAlarmAudioManager
+import com.quran.alarm.ui.AlarmAlertActivity
 
 /**
  * Foreground service that plays the alarm sound and launches the Full-Screen Intent.
@@ -84,7 +84,7 @@ class AlarmForegroundService : Service() {
     }
 
     fun buildNotification(alarmId: Int, label: String, targetPage: Int): Notification {
-        val fullScreenIntent = Intent(this, MainActivity::class.java).apply {
+        val fullScreenIntent = Intent(this, AlarmAlertActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
