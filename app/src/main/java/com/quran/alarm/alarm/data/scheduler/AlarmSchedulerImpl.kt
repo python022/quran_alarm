@@ -28,7 +28,7 @@ class AlarmSchedulerImpl(
             return
         }
 
-        val triggerTime = item.timeInMillis
+        val triggerTime = item.getNextTriggerMillis()
         val operationIntent = createOperationIntent(item)
         val showIntent = createShowIntent(item)
 
@@ -48,6 +48,7 @@ class AlarmSchedulerImpl(
             putExtra(AlarmReceiver.EXTRA_ALARM_ID, item.id)
             putExtra(AlarmReceiver.EXTRA_ALARM_LABEL, item.label)
             putExtra(AlarmReceiver.EXTRA_TARGET_PAGE, item.targetPage)
+            putExtra(AlarmReceiver.EXTRA_IS_VIBRATE, item.isVibrationEnabled)
         }
         return PendingIntent.getBroadcast(
             context,
@@ -70,4 +71,3 @@ class AlarmSchedulerImpl(
         )
     }
 }
-

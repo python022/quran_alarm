@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +33,7 @@ enum class AudioPlaybackState {
  *
  * Implements the sacred reading lifecycle:
  * - Blaring at maximum volume to awaken the sleeper.
+ * - Hardware fallback via [ToneGenerator] if audio files/URIs fail.
  * - Smooth auto-muting when the user attentively reads the Quran lines.
  * - Instant penalty screaming at maximum volume if user looks away.
  */
@@ -42,6 +44,7 @@ class SmartAlarmAudioManager(
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var mediaPlayer: MediaPlayer? = null
+    private var toneGenerator: ToneGenerator? = null
     private var focusRequest: AudioFocusRequest? = null
     private var fadeJob: Job? = null
 
@@ -82,8 +85,14 @@ class SmartAlarmAudioManager(
             currentVolume = 1.0f
             _playbackState.value = AudioPlaybackState.BLARING
         } catch (e: Exception) {
-            // Fallback: try fallback tone if default alarm uri failed
             e.printStackTrace()
+            // High-reliability Fallback: continuous alert tone via ToneGenerator
+            try {
+                toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 100)
+                toneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK)
+            } catch (toneEx: Exception) {
+                toneEx.printStackTrace()
+            }
             _playbackState.value = AudioPlaybackState.BLARING
         }
     }
@@ -99,38 +108,41 @@ class SmartAlarmAudioManager(
             val steps = 10
             val interval = durationMs / steps
             for (i in (steps - 1) downTo 0) {
-                currentVolume = i.toFloat() / steps.toFloat()
+                val vol = i.toFloat() / steps.toFloat()
                 try {
-                    mediaPlayer?.setVolume(currentVolume, currentVolume)
+                    mediaPlayer?.setVolume(vol, vol)
                 } catch (ignored: Exception) {}
+                currentVolume = vol
                 delay(interval)
             }
-            currentVolume = 0.0f
             try {
                 mediaPlayer?.setVolume(0.0f, 0.0f)
+                toneGenerator?.stopTone()
             } catch (ignored: Exception) {}
+            currentVolume = 0.0f
             _playbackState.value = AudioPlaybackState.MUTED
         }
     }
 
     /**
-     * Instantly escalates volume to maximum (100%) as a penalty for looking away or dozing off.
+     * Instantly restores maximum volume when user distraction or looking away is detected.
      */
-    fun screamMaxVolume() {
+    fun instantScream() {
         fadeJob?.cancel()
-        if (_playbackState.value == AudioPlaybackState.STOPPED) return
-
         currentVolume = 1.0f
         try {
             val maxStreamVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
             audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxStreamVolume, 0)
             mediaPlayer?.setVolume(1.0f, 1.0f)
+            if (mediaPlayer == null && toneGenerator != null) {
+                toneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK)
+            }
         } catch (ignored: Exception) {}
         _playbackState.value = AudioPlaybackState.BLARING
     }
 
     /**
-     * Completely silences and releases media player and audio focus.
+     * Completely silences and releases media player, tone generator, and audio focus.
      */
     fun stopAlarm() {
         fadeJob?.cancel()
@@ -144,6 +156,13 @@ class SmartAlarmAudioManager(
             }
         } catch (ignored: Exception) {}
         mediaPlayer = null
+
+        try {
+            toneGenerator?.stopTone()
+            toneGenerator?.release()
+        } catch (ignored: Exception) {}
+        toneGenerator = null
+
         currentVolume = 0.0f
         abandonAudioFocus()
         _playbackState.value = AudioPlaybackState.STOPPED
@@ -181,4 +200,3 @@ class SmartAlarmAudioManager(
         }
     }
 }
-

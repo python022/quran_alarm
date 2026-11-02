@@ -17,6 +17,7 @@ class AlarmReceiver : BroadcastReceiver() {
         const val EXTRA_ALARM_ID = "com.quran.alarm.EXTRA_ALARM_ID"
         const val EXTRA_ALARM_LABEL = "com.quran.alarm.EXTRA_ALARM_LABEL"
         const val EXTRA_TARGET_PAGE = "com.quran.alarm.EXTRA_TARGET_PAGE"
+        const val EXTRA_IS_VIBRATE = "com.quran.alarm.EXTRA_IS_VIBRATE"
         const val ACTION_TRIGGER_ALARM = "com.quran.alarm.ACTION_TRIGGER_ALARM"
     }
 
@@ -24,6 +25,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val alarmId = intent.getIntExtra(EXTRA_ALARM_ID, 0)
         val label = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
         val targetPage = intent.getIntExtra(EXTRA_TARGET_PAGE, 1)
+        val isVibrate = intent.getBooleanExtra(EXTRA_IS_VIBRATE, true)
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(
@@ -32,12 +34,13 @@ class AlarmReceiver : BroadcastReceiver() {
         )
         wakeLock?.acquire(15_000L) // 15 seconds transient window
 
-        // 1. Launch Foreground Audio Service
+        // 1. Launch Foreground Audio and Vibration Service
         val serviceIntent = Intent(context, AlarmForegroundService::class.java).apply {
             action = AlarmForegroundService.ACTION_START_ALARM
             putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
             putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, label)
             putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, targetPage)
+            putExtra(AlarmForegroundService.EXTRA_IS_VIBRATE, isVibrate)
         }
         ContextCompat.startForegroundService(context, serviceIntent)
 
