@@ -5,7 +5,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +27,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -36,7 +34,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +41,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -53,6 +52,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,12 +61,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
 import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
 import com.quran.alarm.alarm.domain.model.AlarmItem
+import com.quran.alarm.alarm.domain.model.QuranStructure
 import com.quran.alarm.ui.AlarmUiFormatters
 import java.util.Calendar
 
@@ -184,7 +184,7 @@ fun AlarmMainScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "جدولة منبه اختباري بعد 10 ثوانٍ للتحقق من الاستيقاظ التام والاهتزاز والرنين بأقصى صوت.",
+                        text = "جدولة منبه اختباري بعد 10 ثوانٍ للتحقق من الاستيقاظ التام والاهتزاز والرنين وقفل الأزرار.",
                         fontSize = 12.sp,
                         color = Color(0xFF94A3B8)
                     )
@@ -199,8 +199,11 @@ fun AlarmMainScreen(
                                 repeatDays = emptySet(),
                                 isEnabled = true,
                                 isVibrationEnabled = true,
-                                label = "تجربة الاستيقاظ والسكون (10 ثوانٍ)",
-                                targetPage = 1,
+                                label = "تجربة الاستيقاظ والورد المتسلسل (10 ثوانٍ)",
+                                targetPage = 42,
+                                startPage = 42,
+                                pageCount = 5,
+                                volumeLevel = 100,
                                 explicitTriggerMillis = testTime
                             )
                             repository.saveAlarm(testAlarm)
@@ -283,7 +286,7 @@ fun AlarmMainScreen(
                 scheduler.schedule(newAlarm)
                 refreshAlarms()
                 showAddDialog = false
-                onShowToast("تم ضبط المنبه بنجاح!")
+                onShowToast("تم حفظ المنبه بنجاح!")
             }
         )
     }
@@ -325,11 +328,12 @@ fun AlarmCard(
                     color = if (alarm.isEnabled) Color(0xFF94A3B8) else Color(0xFF475569)
                 )
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
 
                 Text(
-                    text = "صفحة المصحف: ${alarm.targetPage}${if (alarm.isVibrationEnabled) " • اهتزاز" else ""}",
+                    text = "الورد: صفحة ${alarm.startPage} إلى ${alarm.endPage} (${alarm.pageCount} صفحات) • صوت ${alarm.volumeLevel}%${if (alarm.isVibrationEnabled) " • اهتزاز" else ""}",
                     fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
                     color = if (alarm.isEnabled) Color(0xFF38BDF8) else Color(0xFF475569)
                 )
             }
@@ -370,7 +374,10 @@ fun AddAlarmDialog(
     var repeatDays by remember { mutableStateOf(setOf(Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY)) }
     var isVibrate by remember { mutableStateOf(true) }
     var label by remember { mutableStateOf("صلاة الفجر والورد القرآني") }
-    var targetPage by remember { mutableIntStateOf(1) }
+    var selectedJuz by remember { mutableIntStateOf(3) }
+    var startPage by remember { mutableIntStateOf(QuranStructure.getStartPageForJuz(3)) }
+    var pageCount by remember { mutableIntStateOf(5) }
+    var volumeLevel by remember { mutableFloatStateOf(100f) }
 
     val daysList = listOf(
         Calendar.SATURDAY to "السبت",
@@ -382,12 +389,15 @@ fun AddAlarmDialog(
         Calendar.FRIDAY to "الجمعة"
     )
 
+    val endPageCalc = ((startPage + pageCount - 2) % 604) + 1
+    val nextDayStartCalc = ((startPage + pageCount - 1) % 604) + 1
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF1E293B),
         title = {
             Text(
-                text = "ضبط منبه جديد",
+                text = "ضبط منبه الورد القرآني",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
@@ -399,7 +409,7 @@ fun AddAlarmDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                // Time selector
+                // 1. Time selector
                 Text(
                     text = "وقت المنبه",
                     fontSize = 13.sp,
@@ -497,13 +507,166 @@ fun AddAlarmDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Quick presets
+                // 2. Quran Wird Section (الورد القرآني المتسلسل)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "📖 خطة الورد اليومي المتسلسل",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF38BDF8)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Select by Juz
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "البدء من الجزء: $selectedJuz",
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                            Row {
+                                Button(
+                                    onClick = {
+                                        if (selectedJuz > 1) {
+                                            selectedJuz--
+                                            startPage = QuranStructure.getStartPageForJuz(selectedJuz)
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(32.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                                ) {
+                                    Text("-")
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Button(
+                                    onClick = {
+                                        if (selectedJuz < 30) {
+                                            selectedJuz++
+                                            startPage = QuranStructure.getStartPageForJuz(selectedJuz)
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(32.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                                ) {
+                                    Text("+")
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Daily pages amount
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "مقدار الورد اليومي: $pageCount صفحات",
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                            Row {
+                                Button(
+                                    onClick = { if (pageCount > 1) pageCount-- },
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(32.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                                ) {
+                                    Text("-")
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Button(
+                                    onClick = { if (pageCount < 50) pageCount++ },
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(32.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                                ) {
+                                    Text("+")
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Live summary card
+                        Text(
+                            text = "ورد اليوم الأول: من صفحة $startPage إلى صفحة $endPageCalc ($pageCount صفحات)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF10B981)
+                        )
+                        Text(
+                            text = "اليوم التالي: سينتقل تلقائياً إلى صفحة $nextDayStartCalc",
+                            fontSize = 11.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 3. Audio & Volume Control (درجة الصوت)
+                Text(
+                    text = "درجة الصوت: ${volumeLevel.toInt()}%",
+                    fontSize = 13.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Slider(
+                    value = volumeLevel,
+                    onValueChange = { volumeLevel = it },
+                    valueRange = 10f..100f,
+                    steps = 9,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFF10B981),
+                        activeTrackColor = Color(0xFF10B981),
+                        inactiveTrackColor = Color(0xFF334155)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Vibration Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "الاهتزاز المتواصل",
+                        fontSize = 14.sp,
+                        color = Color.White
+                    )
+                    Switch(
+                        checked = isVibrate,
+                        onCheckedChange = { isVibrate = it }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 4. Repeat schedule
                 Text(
                     text = "التكرار",
                     fontSize = 13.sp,
                     color = Color(0xFF94A3B8)
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -534,7 +697,6 @@ fun AddAlarmDialog(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Days chips
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -553,26 +715,7 @@ fun AddAlarmDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Vibration Toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "الاهتزاز المتواصل",
-                        fontSize = 14.sp,
-                        color = Color.White
-                    )
-                    Switch(
-                        checked = isVibrate,
-                        onCheckedChange = { isVibrate = it }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Label input
+                // Label
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
@@ -586,40 +729,6 @@ fun AddAlarmDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Target Mushaf page
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "صفحة المصحف: $targetPage",
-                        fontSize = 14.sp,
-                        color = Color.White
-                    )
-                    Row {
-                        Button(
-                            onClick = { if (targetPage > 1) targetPage-- },
-                            shape = CircleShape,
-                            modifier = Modifier.size(36.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-                        ) {
-                            Text("-")
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Button(
-                            onClick = { if (targetPage < 604) targetPage++ },
-                            shape = CircleShape,
-                            modifier = Modifier.size(36.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-                        ) {
-                            Text("+")
-                        }
-                    }
-                }
             }
         },
         confirmButton = {
@@ -639,7 +748,10 @@ fun AddAlarmDialog(
                         isEnabled = true,
                         isVibrationEnabled = isVibrate,
                         label = label.ifBlank { "ورد القرآن الكريم" },
-                        targetPage = targetPage
+                        targetPage = startPage,
+                        startPage = startPage,
+                        pageCount = pageCount,
+                        volumeLevel = volumeLevel.toInt()
                     )
                     onSave(newAlarm)
                 },
