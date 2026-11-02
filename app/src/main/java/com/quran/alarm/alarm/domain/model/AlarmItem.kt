@@ -3,20 +3,20 @@ package com.quran.alarm.alarm.domain.model
 import java.util.Calendar
 
 /**
- * Immutable domain model representing a Quran Alarm.
- *
- * Supports single-shot alarms, recurring day-of-week alarms, custom labels,
- * vibration settings, and target Mushaf page.
+ * Immutable domain model representing a Quran Alarm with customizable Wird progression and audio settings.
  *
  * @property id Unique identifier for the alarm (non-negative).
  * @property hour Hour of day in 24-hour format (0..23).
  * @property minute Minute of hour (0..59).
- * @property repeatDays Set of Calendar day-of-week constants (e.g., [Calendar.SUNDAY]..[Calendar.SATURDAY]).
- *                      If empty, the alarm triggers once on the nearest occurrence.
+ * @property repeatDays Set of Calendar day-of-week constants. If empty, the alarm triggers once.
  * @property isEnabled Whether the alarm is currently active and scheduled.
  * @property isVibrationEnabled Whether vibration is activated during alarm ringing.
  * @property label Human-readable description (e.g., "صلاة الفجر والورد القرآني").
- * @property targetPage Mushaf page number (1..604).
+ * @property targetPage Mushaf page number (1..604) for backward compatibility.
+ * @property startPage Starting Mushaf page (1..604) for today's wird.
+ * @property pageCount Number of consecutive pages assigned for the daily wird (1..50).
+ * @property volumeLevel Volume level percentage (10..100%).
+ * @property soundUri Optional custom tone URI string.
  * @property explicitTriggerMillis Optional explicit epoch timestamp (used for quick tests, snooze, or exact triggers).
  */
 data class AlarmItem(
@@ -28,6 +28,10 @@ data class AlarmItem(
     val isVibrationEnabled: Boolean = true,
     val label: String = "ورد القرآن الكريم",
     val targetPage: Int = 1,
+    val startPage: Int = targetPage,
+    val pageCount: Int = 5,
+    val volumeLevel: Int = 100,
+    val soundUri: String? = null,
     val explicitTriggerMillis: Long? = null
 ) {
     init {
@@ -35,10 +39,13 @@ data class AlarmItem(
         require(hour in 0..23) { "Hour must be between 0 and 23" }
         require(minute in 0..59) { "Minute must be between 0 and 59" }
         require(targetPage in 1..604) { "Target page must be between 1 and 604" }
+        require(startPage in 1..604) { "Start page must be between 1 and 604" }
+        require(pageCount in 1..604) { "Page count must be between 1 and 604" }
+        require(volumeLevel in 1..100) { "Volume level must be between 1 and 100" }
     }
 
     /**
-     * Compatibility constructor for explicit epoch timestamp alarms.
+     * Compatibility constructor for legacy timeInMillis tests and callers.
      */
     constructor(
         id: Int,
@@ -55,8 +62,30 @@ data class AlarmItem(
         isVibrationEnabled = true,
         label = label,
         targetPage = targetPage,
+        startPage = targetPage,
+        pageCount = 5,
+        volumeLevel = 100,
+        soundUri = null,
         explicitTriggerMillis = timeInMillis
     )
+
+    /**
+     * Calculates the concluding page of today's reading session.
+     */
+    val endPage: Int
+        get() = ((startPage + pageCount - 2) % 604) + 1
+
+    /**
+     * Automatically advances the start page to the next daily portion upon session completion.
+     * Wraps cleanly around page 604 (completing a Khatma back to Surah Al-Fatihah).
+     */
+    fun advanceToNextWird(): AlarmItem {
+        val nextStart = ((startPage + pageCount - 1) % 604) + 1
+        return copy(
+            startPage = nextStart,
+            targetPage = nextStart
+        )
+    }
 
     /**
      * Epoch timestamp in milliseconds for backward compatibility.
@@ -83,14 +112,12 @@ data class AlarmItem(
         }
 
         if (repeatDays.isEmpty()) {
-            // Once-only alarm: if target time is in the past, roll over to tomorrow
             if (!target.after(now)) {
                 target.add(Calendar.DAY_OF_YEAR, 1)
             }
             return target.timeInMillis
         }
 
-        // Repeating alarm: find earliest matching day of week that is strictly in the future
         for (dayOffset in 0..7) {
             val candidate = (target.clone() as Calendar).apply {
                 add(Calendar.DAY_OF_YEAR, dayOffset)

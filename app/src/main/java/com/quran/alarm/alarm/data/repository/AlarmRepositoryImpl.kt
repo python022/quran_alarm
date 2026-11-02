@@ -24,6 +24,10 @@ class AlarmRepositoryImpl(
         private const val KEY_PREFIX_ENABLED = "alarm_enabled_"
         private const val KEY_PREFIX_VIBRATE = "alarm_vibrate_"
         private const val KEY_PREFIX_PAGE = "alarm_page_"
+        private const val KEY_PREFIX_START_PAGE = "alarm_start_page_"
+        private const val KEY_PREFIX_PAGE_COUNT = "alarm_page_count_"
+        private const val KEY_PREFIX_VOLUME = "alarm_volume_"
+        private const val KEY_PREFIX_SOUND_URI = "alarm_sound_uri_"
         private const val KEY_PREFIX_EXPLICIT_TIME = "alarm_explicit_time_"
     }
 
@@ -43,6 +47,15 @@ class AlarmRepositoryImpl(
             .putBoolean(KEY_PREFIX_ENABLED + idStr, alarm.isEnabled)
             .putBoolean(KEY_PREFIX_VIBRATE + idStr, alarm.isVibrationEnabled)
             .putInt(KEY_PREFIX_PAGE + idStr, alarm.targetPage)
+            .putInt(KEY_PREFIX_START_PAGE + idStr, alarm.startPage)
+            .putInt(KEY_PREFIX_PAGE_COUNT + idStr, alarm.pageCount)
+            .putInt(KEY_PREFIX_VOLUME + idStr, alarm.volumeLevel)
+
+        if (alarm.soundUri != null) {
+            editor.putString(KEY_PREFIX_SOUND_URI + idStr, alarm.soundUri)
+        } else {
+            editor.remove(KEY_PREFIX_SOUND_URI + idStr)
+        }
 
         if (alarm.explicitTriggerMillis != null) {
             editor.putLong(KEY_PREFIX_EXPLICIT_TIME + idStr, alarm.explicitTriggerMillis)
@@ -85,6 +98,10 @@ class AlarmRepositoryImpl(
             .remove(KEY_PREFIX_ENABLED + idStr)
             .remove(KEY_PREFIX_VIBRATE + idStr)
             .remove(KEY_PREFIX_PAGE + idStr)
+            .remove(KEY_PREFIX_START_PAGE + idStr)
+            .remove(KEY_PREFIX_PAGE_COUNT + idStr)
+            .remove(KEY_PREFIX_VOLUME + idStr)
+            .remove(KEY_PREFIX_SOUND_URI + idStr)
             .remove(KEY_PREFIX_EXPLICIT_TIME + idStr)
             .apply()
     }
@@ -103,6 +120,10 @@ class AlarmRepositoryImpl(
         val isEnabled = prefs.getBoolean(KEY_PREFIX_ENABLED + idStr, true)
         val isVibrate = prefs.getBoolean(KEY_PREFIX_VIBRATE + idStr, true)
         val page = prefs.getInt(KEY_PREFIX_PAGE + idStr, 1)
+        val startPage = prefs.getInt(KEY_PREFIX_START_PAGE + idStr, page)
+        val pageCount = prefs.getInt(KEY_PREFIX_PAGE_COUNT + idStr, 5)
+        val volume = prefs.getInt(KEY_PREFIX_VOLUME + idStr, 100)
+        val soundUri = prefs.getString(KEY_PREFIX_SOUND_URI + idStr, null)
 
         val explicitTime = if (prefs.contains(KEY_PREFIX_EXPLICIT_TIME + idStr)) {
             prefs.getLong(KEY_PREFIX_EXPLICIT_TIME + idStr, 0L)
@@ -118,7 +139,11 @@ class AlarmRepositoryImpl(
             isEnabled = isEnabled,
             isVibrationEnabled = isVibrate,
             label = label,
-            targetPage = page,
+            targetPage = startPage,
+            startPage = startPage,
+            pageCount = pageCount,
+            volumeLevel = volume,
+            soundUri = soundUri,
             explicitTriggerMillis = explicitTime
         )
     }
