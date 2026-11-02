@@ -37,7 +37,9 @@
             android:exported="false"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
-            android:launchMode="singleTop" />
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.quran.alarm.alert"
+            android:launchMode="singleInstance" />
 
         <receiver
             android:name=".alarm.receiver.AlarmReceiver"
