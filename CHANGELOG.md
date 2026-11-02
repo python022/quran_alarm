@@ -10,7 +10,7 @@
 - **الخطة الهندسية لطلبات الدمج (Atomic PRs):**
   - [x] **تأسيس خطة العمل وفتح Issue:** تم فتح Issue #1 وتفصيل الـ 6 PRs ومعايير القبول.
   - [x] **PR 1:** `feat(build): initialize Android Gradle Kotlin DSL project structure with zero-network manifest` (تم الدمج بنجاح عبر PR #2)
-  - [ ] **PR 2:** `feat(alarm): implement AlarmScheduler domain models and AlarmSchedulerImpl with unit tests`
+  - [x] **PR 2:** `feat(alarm): implement AlarmScheduler domain models and AlarmSchedulerImpl with unit tests` (تم الدمج بنجاح عبر PR #3)
   - [ ] **PR 3:** `feat(service): implement AlarmReceiver and AlarmForegroundService with mediaPlayback`
   - [ ] **PR 4:** `feat(audio): implement SmartAlarmAudioManager for STREAM_ALARM playback and volume lifecycle`
   - [ ] **PR 5:** `feat(boot): implement BootReceiver for alarm rescheduling after device restart`
