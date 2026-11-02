@@ -18,6 +18,8 @@ class BootReschedulingTest {
             storage[alarm.id] = alarm
         }
 
+        override fun getAllAlarms(): List<AlarmItem> = storage.values.toList()
+
         override fun getActiveAlarms(): List<AlarmItem> = storage.values.filter { it.isEnabled }
 
         override fun getAlarmById(id: Int): AlarmItem? = storage[id]
@@ -63,12 +65,11 @@ class BootReschedulingTest {
         repo.saveAlarm(activeAlarm2)
         repo.saveAlarm(disabledAlarm)
 
-        val receiver = BootReceiver(
-            repositoryProvider = { repo },
+        val receiver = BootReceiver().apply {
+            repositoryProvider = { repo }
             schedulerProvider = { scheduler }
-        )
+        }
 
-        // Mock context not needed since providers are injected
         receiver.rescheduleAllAlarms(android.app.Application())
 
         assertEquals(2, scheduler.scheduledAlarms.size)
@@ -86,4 +87,3 @@ class BootReschedulingTest {
         }
     }
 }
-
