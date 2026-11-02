@@ -12,7 +12,7 @@
   - [x] **PR 1:** `feat(build): initialize Android Gradle Kotlin DSL project structure with zero-network manifest` (تم الدمج بنجاح عبر PR #2)
   - [x] **PR 2:** `feat(alarm): implement AlarmScheduler domain models and AlarmSchedulerImpl with unit tests` (تم الدمج بنجاح عبر PR #3)
   - [x] **PR 3:** `feat(service): implement AlarmReceiver and AlarmForegroundService with mediaPlayback` (تم الدمج بنجاح عبر PR #4)
-  - [ ] **PR 4:** `feat(audio): implement SmartAlarmAudioManager for STREAM_ALARM playback and volume lifecycle`
+  - [x] **PR 4:** `feat(audio): implement SmartAlarmAudioManager for STREAM_ALARM playback and volume lifecycle` (تم الدمج بنجاح عبر PR #5)
   - [ ] **PR 5:** `feat(boot): implement BootReceiver for alarm rescheduling after device restart`
   - [ ] **PR 6:** `feat(ui): implement AlarmAlertActivity with lockscreen display flags and Compose UI`
 
