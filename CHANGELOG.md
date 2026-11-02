@@ -9,7 +9,7 @@
 - **GitHub Issue:** [#1](https://github.com/python022/quran_alarm/issues/1) - توثيق كامل لأهداف ومعايير نجاح وخطة الـ Pull Requests الخاصة بالمرحلة 1.
 - **الخطة الهندسية لطلبات الدمج (Atomic PRs):**
   - [x] **تأسيس خطة العمل وفتح Issue:** تم فتح Issue #1 وتفصيل الـ 6 PRs ومعايير القبول.
-  - [ ] **PR 1:** `feat(build): initialize Android Gradle Kotlin DSL project structure with zero-network manifest`
+  - [x] **PR 1:** `feat(build): initialize Android Gradle Kotlin DSL project structure with zero-network manifest` (تم الدمج بنجاح عبر PR #2)
   - [ ] **PR 2:** `feat(alarm): implement AlarmScheduler domain models and AlarmSchedulerImpl with unit tests`
   - [ ] **PR 3:** `feat(service): implement AlarmReceiver and AlarmForegroundService with mediaPlayback`
   - [ ] **PR 4:** `feat(audio): implement SmartAlarmAudioManager for STREAM_ALARM playback and volume lifecycle`
@@ -30,4 +30,3 @@
 - **مسار التكامل المستمر (CI/CD):**
   - بناء `.github/workflows/ci.yml` للتحقق التلقائي من العزل الشبكي (Zero-Internet) وخلو الصلاحيات الخطرة.
   - إعداد خطاف الحماية `.githooks/pre-push` لحظر الدفع المباشر لفرع `main`.
-

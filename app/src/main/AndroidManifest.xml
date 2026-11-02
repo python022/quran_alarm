@@ -31,7 +31,14 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".alarm.receiver.AlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.quran.alarm.ACTION_TRIGGER_ALARM" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
-
