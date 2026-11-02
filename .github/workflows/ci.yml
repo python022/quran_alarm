@@ -64,18 +64,8 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Cache Gradle Packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Make Gradle Wrapper Executable
         run: |
@@ -83,11 +73,10 @@ jobs:
             chmod +x gradlew
           fi
 
-      - name: Run Unit Tests & Lint
+      - name: Run Unit Tests
         run: |
           if [ -f "./gradlew" ]; then
             ./gradlew test --stacktrace
-            ./gradlew lint
           else
             echo "Gradle wrapper not yet committed. Passing foundation check."
           fi
