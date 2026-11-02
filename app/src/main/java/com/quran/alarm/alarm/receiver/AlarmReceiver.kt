@@ -6,10 +6,11 @@ import android.content.Intent
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.quran.alarm.alarm.service.AlarmForegroundService
+import com.quran.alarm.ui.AlarmAlertActivity
 
 /**
  * BroadcastReceiver responsible for capturing alarm triggers from [android.app.AlarmManager].
- * Holds a transient WakeLock to guarantee successful Foreground Service transition even under Doze mode.
+ * Holds a transient WakeLock and launches both the Foreground Service and AlarmAlertActivity.
  */
 class AlarmReceiver : BroadcastReceiver() {
     companion object {
@@ -31,16 +32,28 @@ class AlarmReceiver : BroadcastReceiver() {
         )
         wakeLock?.acquire(15_000L) // 15 seconds transient window
 
+        // 1. Launch Foreground Audio Service
+        val serviceIntent = Intent(context, AlarmForegroundService::class.java).apply {
+            action = AlarmForegroundService.ACTION_START_ALARM
+            putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
+            putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, label)
+            putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, targetPage)
+        }
+        ContextCompat.startForegroundService(context, serviceIntent)
+
+        // 2. Launch Full-Screen Lockscreen Alert Activity directly
+        val alertIntent = Intent(context, AlarmAlertActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
+            putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, label)
+            putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, targetPage)
+        }
         try {
-            val serviceIntent = Intent(context, AlarmForegroundService::class.java).apply {
-                action = AlarmForegroundService.ACTION_START_ALARM
-                putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
-                putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, label)
-                putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, targetPage)
-            }
-            ContextCompat.startForegroundService(context, serviceIntent)
-        } finally {
-            // Service handles its own persistent lifecycle WakeLock
+            context.startActivity(alertIntent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }
