@@ -51,6 +51,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
 import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
 import com.quran.alarm.alarm.domain.model.AlarmItem
@@ -62,27 +65,34 @@ import java.util.Calendar
  * High-priority lock screen activity launched via FullScreenIntent when the alarm fires.
  *
  * Implements strict anti-bypass lockscreen behavior:
- * - Displays on top of keyguard / lockscreen.
- * - Turns screen on immediately and holds KEEP_SCREEN_ON.
+ * - Hides navigation bars and status bar in sticky immersive mode.
  * - Blocks physical volume down / up / mute keys.
  * - Blocks back button via OnBackPressedCallback.
- * - Relaunches to front if home or recent apps is attempted before dismissal or snooze.
+ * - Automatically brings activity to front if user attempts Home or Recents.
+ * - Displays live device time and the user's sequential Quran Wird range.
+ * - Automatically advances the Wird to the next portion upon session dismissal.
  */
 class AlarmAlertActivity : ComponentActivity() {
 
     private var alarmId: Int = 0
     private var alarmLabel: String = "ورد القرآن الكريم"
-    private var targetPage: Int = 1
+    private var startPage: Int = 1
+    private var pageCount: Int = 5
     private var isDismissedOrSnoozed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupLockscreenFlags()
+        setupImmersiveStickyMode()
         setupAntiBypassBackBlocker()
 
         alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
         alarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
-        targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1)
+        val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1)
+        startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage)
+        pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5)
+
+        val endPage = ((startPage + pageCount - 2) % 604) + 1
 
         setContent {
             MaterialTheme {
@@ -92,9 +102,11 @@ class AlarmAlertActivity : ComponentActivity() {
                 ) {
                     AlarmAlertScreen(
                         label = alarmLabel,
-                        targetPage = targetPage,
+                        startPage = startPage,
+                        endPage = endPage,
+                        pageCount = pageCount,
                         onSnooze = { snoozeAlarm(minutes = 5) },
-                        onDismissAlarm = { stopAlarmAndDismiss() }
+                        onDismissAlarm = { completeAndAdvanceWird() }
                     )
                 }
             }
@@ -116,6 +128,13 @@ class AlarmAlertActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
+    private fun setupImmersiveStickyMode() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+    }
+
     private fun setupAntiBypassBackBlocker() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -125,12 +144,13 @@ class AlarmAlertActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // Prevent muting or disabling alarm via physical volume keys
+        // Prevent muting or disabling alarm via physical volume keys or navigation keys
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP,
             KeyEvent.KEYCODE_VOLUME_DOWN,
-            KeyEvent.KEYCODE_VOLUME_MUTE -> true
-            KeyEvent.KEYCODE_BACK -> true
+            KeyEvent.KEYCODE_VOLUME_MUTE,
+            KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_APP_SWITCH -> true
             else -> super.onKeyDown(keyCode, event)
         }
     }
@@ -138,11 +158,20 @@ class AlarmAlertActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (!isDismissedOrSnoozed) {
-            // Bring activity back to front if user attempts home button
+            // Re-order activity immediately to front if user attempts Home or Recents
             val intent = Intent(this, AlarmAlertActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
             startActivity(intent)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus && !isDismissedOrSnoozed) {
+            // Re-apply sticky immersive mode
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -160,7 +189,9 @@ class AlarmAlertActivity : ComponentActivity() {
             isEnabled = true,
             isVibrationEnabled = true,
             label = alarmLabel,
-            targetPage = targetPage,
+            targetPage = startPage,
+            startPage = startPage,
+            pageCount = pageCount,
             explicitTriggerMillis = snoozeTime
         )
         scheduler.schedule(snoozeItem)
@@ -173,8 +204,21 @@ class AlarmAlertActivity : ComponentActivity() {
         finish()
     }
 
-    private fun stopAlarmAndDismiss() {
+    private fun completeAndAdvanceWird() {
         isDismissedOrSnoozed = true
+
+        // Automatically advance Wird to the next set of pages for the next session
+        val repository = AlarmRepositoryImpl(this)
+        val scheduler = AlarmSchedulerImpl(this)
+        val currentAlarm = repository.getAlarmById(alarmId)
+        if (currentAlarm != null) {
+            val advancedAlarm = currentAlarm.advanceToNextWird()
+            repository.saveAlarm(advancedAlarm)
+            if (advancedAlarm.isEnabled && advancedAlarm.repeatDays.isNotEmpty()) {
+                scheduler.schedule(advancedAlarm)
+            }
+        }
+
         val stopIntent = Intent(this, AlarmForegroundService::class.java).apply {
             action = AlarmForegroundService.ACTION_STOP_ALARM
         }
@@ -186,7 +230,9 @@ class AlarmAlertActivity : ComponentActivity() {
 @Composable
 fun AlarmAlertScreen(
     label: String,
-    targetPage: Int,
+    startPage: Int,
+    endPage: Int,
+    pageCount: Int,
     onSnooze: () -> Unit,
     onDismissAlarm: () -> Unit
 ) {
@@ -217,7 +263,7 @@ fun AlarmAlertScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Top: Date & Big Bold Digital Clock
+        // Top: Actual Live Date & Big Digital Clock
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(top = 24.dp)
@@ -230,7 +276,7 @@ fun AlarmAlertScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = AlarmUiFormatters.formatCurrentDigitalTime(currentTimeMillis),
@@ -240,7 +286,7 @@ fun AlarmAlertScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Box(
                 contentAlignment = Alignment.Center,
@@ -258,7 +304,7 @@ fun AlarmAlertScreen(
             }
         }
 
-        // Center: Mission & Page Info Card
+        // Center: Sacred Wird & Page Range Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -277,24 +323,32 @@ fun AlarmAlertScreen(
                     color = Color.White,
                     textAlign = TextAlign.Center
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "الورد اليومي: من صفحة $startPage إلى صفحة $endPage",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF38BDF8),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "($pageCount صفحات متتالية)",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF10B981)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "صفحة المصحف الشريف: $targetPage",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF38BDF8)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "المنبه يرن ويهتز بأقصى طاقة. تم قفل أزرار الصوت لمنع التحايل.",
-                    fontSize = 12.sp,
+                    text = "تم قفل أزرار التنقل والصوت. عند الانتهاء سينتقل المنبه تلقائياً إلى الورد التالي.",
+                    fontSize = 11.sp,
                     color = Color(0xFF94A3B8),
                     textAlign = TextAlign.Center
                 )
             }
         }
 
-        // Bottom Actions: Snooze ("غفوة") and Action Button ("إيقاف / بدء الورد")
+        // Bottom Actions: Snooze ("غفوة") and Action Button ("إتمام الورد / إيقاف")
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -316,9 +370,9 @@ fun AlarmAlertScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Primary Dismiss / Mission Button
+            // Primary Completion Button
             Button(
                 onClick = onDismissAlarm,
                 modifier = Modifier
@@ -328,7 +382,7 @@ fun AlarmAlertScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
             ) {
                 Text(
-                    text = "إيقاف المنبه (مؤقت لاختبار المرحلة 1)",
+                    text = "إتمام الورد وإيقاف المنبه",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White

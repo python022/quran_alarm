@@ -33,6 +33,9 @@ class AlarmForegroundService : Service() {
         const val EXTRA_ALARM_ID = "com.quran.alarm.EXTRA_ALARM_ID"
         const val EXTRA_ALARM_LABEL = "com.quran.alarm.EXTRA_ALARM_LABEL"
         const val EXTRA_TARGET_PAGE = "com.quran.alarm.EXTRA_TARGET_PAGE"
+        const val EXTRA_START_PAGE = "com.quran.alarm.EXTRA_START_PAGE"
+        const val EXTRA_PAGE_COUNT = "com.quran.alarm.EXTRA_PAGE_COUNT"
+        const val EXTRA_VOLUME_LEVEL = "com.quran.alarm.EXTRA_VOLUME_LEVEL"
         const val EXTRA_IS_VIBRATE = "com.quran.alarm.EXTRA_IS_VIBRATE"
 
         const val NOTIFICATION_ID = 1001
@@ -74,9 +77,11 @@ class AlarmForegroundService : Service() {
                 val alarmId = intent.getIntExtra(EXTRA_ALARM_ID, 0)
                 val label = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
                 val targetPage = intent.getIntExtra(EXTRA_TARGET_PAGE, 1)
+                val startPage = intent.getIntExtra(EXTRA_START_PAGE, targetPage)
+                val pageCount = intent.getIntExtra(EXTRA_PAGE_COUNT, 5)
                 val isVibrate = intent.getBooleanExtra(EXTRA_IS_VIBRATE, true)
 
-                val notification = buildNotification(alarmId, label, targetPage)
+                val notification = buildNotification(alarmId, label, startPage, pageCount)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(
                         NOTIFICATION_ID,
@@ -103,14 +108,17 @@ class AlarmForegroundService : Service() {
         return START_STICKY
     }
 
-    fun buildNotification(alarmId: Int, label: String, targetPage: Int): Notification {
+    fun buildNotification(alarmId: Int, label: String, startPage: Int, pageCount: Int): Notification {
+        val endPage = ((startPage + pageCount - 2) % 604) + 1
         val fullScreenIntent = Intent(this, AlarmAlertActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(EXTRA_ALARM_ID, alarmId)
             putExtra(EXTRA_ALARM_LABEL, label)
-            putExtra(EXTRA_TARGET_PAGE, targetPage)
+            putExtra(EXTRA_TARGET_PAGE, startPage)
+            putExtra(EXTRA_START_PAGE, startPage)
+            putExtra(EXTRA_PAGE_COUNT, pageCount)
         }
 
         val fullScreenPendingIntent = PendingIntent.getActivity(
@@ -133,7 +141,7 @@ class AlarmForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("منبه القرآن الكريم")
-            .setContentText("$label - صفحة $targetPage")
+            .setContentText("$label - الورد: صفحة $startPage إلى $endPage")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

@@ -49,3 +49,4 @@ class AlarmUiFormattersTest {
         assertEquals("المنبه خلال 3 ساعة و 25 دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + (3 * 60 + 25) * 60_000L, now))
     }
 }
+

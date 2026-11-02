@@ -65,3 +65,4 @@ class WirdProgressionTest {
         assertEquals(582, QuranStructure.getStartPageForJuz(30))
     }
 }
+
