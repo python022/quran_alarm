@@ -5,23 +5,28 @@ import android.content.Context
 import android.content.Intent
 import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
 import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
-import com.quran.alarm.alarm.domain.model.AlarmItem
 import com.quran.alarm.alarm.domain.repository.AlarmRepository
 import com.quran.alarm.alarm.domain.scheduler.AlarmScheduler
 
 /**
- * BroadcastReceiver responsible for rescheduling all active Quran alarms upon device reboot.
- * Guarantees zero missed alarms when the phone restarts overnight or after battery depletion.
+ * BroadcastReceiver responsible for rescheduling all active alarms upon device reboot.
+ *
+ * Catches:
+ * - [Intent.ACTION_BOOT_COMPLETED]
+ * - [Intent.ACTION_LOCKED_BOOT_COMPLETED]
+ * - [Intent.ACTION_MY_PACKAGE_REPLACED]
+ *
+ * Guarantees that no scheduled prayer/Quran alarm is lost after battery drain or system restart.
  */
-class BootReceiver(
-    private val repositoryProvider: (Context) -> AlarmRepository = { context -> AlarmRepositoryImpl(context) },
-    private val schedulerProvider: (Context) -> AlarmScheduler = { context -> AlarmSchedulerImpl(context) }
-) : BroadcastReceiver() {
+class BootReceiver : BroadcastReceiver() {
+
+    var repositoryProvider: (Context) -> AlarmRepository = { context -> AlarmRepositoryImpl(context) }
+    var schedulerProvider: (Context) -> AlarmScheduler = { context -> AlarmSchedulerImpl(context) }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action ?: return
+        val action = intent.action
         if (action == Intent.ACTION_BOOT_COMPLETED ||
-            action == "android.intent.action.LOCKED_BOOT_COMPLETED" ||
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED
         ) {
             rescheduleAllAlarms(context)
@@ -35,10 +40,10 @@ class BootReceiver(
         val now = System.currentTimeMillis()
 
         for (alarm in activeAlarms) {
-            val updatedAlarm = if (alarm.timeInMillis <= now) {
-                // If the scheduled time has already elapsed while device was off, advance by 24h
-                val nextTime = calculateNextTriggerTime(alarm.timeInMillis, now)
-                val refreshed = alarm.copy(timeInMillis = nextTime)
+            val updatedAlarm = if (alarm.explicitTriggerMillis != null && alarm.explicitTriggerMillis <= now) {
+                // If an explicit one-shot timestamp has already elapsed while device was off, advance by 24h
+                val nextTime = calculateNextTriggerTime(alarm.explicitTriggerMillis, now)
+                val refreshed = alarm.copy(explicitTriggerMillis = nextTime)
                 repository.saveAlarm(refreshed)
                 refreshed
             } else {
@@ -60,4 +65,3 @@ class BootReceiver(
         }
     }
 }
-
