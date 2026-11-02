@@ -14,6 +14,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.quran.alarm.MainActivity
 import com.quran.alarm.R
+import com.quran.alarm.alarm.audio.SmartAlarmAudioManager
 
 /**
  * Foreground service that plays the alarm sound and launches the Full-Screen Intent.
@@ -35,11 +36,13 @@ class AlarmForegroundService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private lateinit var audioManager: SmartAlarmAudioManager
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        audioManager = SmartAlarmAudioManager(this)
         createNotificationChannel()
         acquireWakeLock()
     }
@@ -52,6 +55,7 @@ class AlarmForegroundService : Service() {
 
         when (intent.action) {
             ACTION_STOP_ALARM -> {
+                audioManager.stopAlarm()
                 stopAlarmAndSelf()
                 return START_NOT_STICKY
             }
@@ -70,6 +74,9 @@ class AlarmForegroundService : Service() {
                 } else {
                     startForeground(NOTIFICATION_ID, notification)
                 }
+
+                // Start alarm tone on STREAM_ALARM with maximum volume
+                audioManager.startAlarm()
             }
         }
 
@@ -158,8 +165,10 @@ class AlarmForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        if (::audioManager.isInitialized) {
+            audioManager.stopAlarm()
+        }
         releaseWakeLock()
         super.onDestroy()
     }
 }
-
