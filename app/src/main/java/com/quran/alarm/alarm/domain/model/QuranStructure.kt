@@ -46,3 +46,4 @@ object QuranStructure {
         return JUZ_START_PAGES[juzNumber - 1]
     }
 }
+
