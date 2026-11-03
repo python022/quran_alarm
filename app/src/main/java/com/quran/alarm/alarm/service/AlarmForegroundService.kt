@@ -94,6 +94,7 @@ class AlarmForegroundService : Service() {
                 val targetPage = intent.getIntExtra(EXTRA_TARGET_PAGE, 1)
                 val startPage = intent.getIntExtra(EXTRA_START_PAGE, targetPage)
                 val pageCount = intent.getIntExtra(EXTRA_PAGE_COUNT, 5)
+                val volumeLevel = intent.getIntExtra(EXTRA_VOLUME_LEVEL, 100).coerceIn(1, 100)
                 val isVibrate = intent.getBooleanExtra(EXTRA_IS_VIBRATE, true)
 
                 val notification = buildNotification(alarmId, label, startPage, pageCount)
@@ -107,11 +108,11 @@ class AlarmForegroundService : Service() {
                     startForeground(NOTIFICATION_ID, notification)
                 }
 
-                // Enforce maximum volume to prevent muting bypass
-                volumeEnforcer.startEnforcing()
+                // Enforce user-configured volume level to prevent muting bypass
+                volumeEnforcer.startEnforcing(volumeLevel)
 
-                // Start alarm tone on STREAM_ALARM with maximum volume
-                audioManager.startAlarm()
+                // Start alarm tone on STREAM_ALARM with configured volume
+                audioManager.startAlarm(volumeLevel = volumeLevel)
 
                 // Start high-intensity haptic vibration loop
                 if (isVibrate) {
@@ -234,6 +235,7 @@ class AlarmForegroundService : Service() {
                 setBypassDnd(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 enableVibration(true)
+                setSound(null, null) // Explicitly silence notification channel to avoid system chime overlap
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)

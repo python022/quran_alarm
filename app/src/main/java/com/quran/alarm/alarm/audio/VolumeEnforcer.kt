@@ -23,20 +23,24 @@ class VolumeEnforcer(
     var isEnforcing: Boolean = false
         private set
 
+    var targetVolumePercent: Int = 100
+        private set
+
     val observer: ContentObserver by lazy {
         object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 super.onChange(selfChange, uri)
                 if (isEnforcing) {
-                    enforceMaxVolume()
+                    enforceTargetVolume()
                 }
             }
         }
     }
 
-    fun startEnforcing() {
+    fun startEnforcing(volumePercent: Int = 100) {
+        targetVolumePercent = volumePercent.coerceIn(1, 100)
         isEnforcing = true
-        enforceMaxVolume()
+        enforceTargetVolume()
         try {
             context.contentResolver.registerContentObserver(
                 Settings.System.CONTENT_URI,
@@ -57,16 +61,21 @@ class VolumeEnforcer(
         }
     }
 
-    fun enforceMaxVolume() {
+    fun enforceTargetVolume() {
         val audioManager = audioManagerProvider() ?: return
         try {
             val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            val targetVolume = ((maxVolume * targetVolumePercent + 99) / 100).coerceIn(1, maxVolume)
             val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
-            if (currentVolume < maxVolume) {
-                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0)
+            if (currentVolume < targetVolume) {
+                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVolume, 0)
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    fun enforceMaxVolume() {
+        enforceTargetVolume()
     }
 }

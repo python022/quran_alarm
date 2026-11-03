@@ -53,17 +53,20 @@ class SmartAlarmAudioManager(
 
     private var currentVolume = 1.0f
 
+    private var targetVolumePercent: Int = 100
+
     /**
-     * Starts alarm playback at maximum volume on the ALARM stream.
+     * Starts alarm playback at user-configured volume on the ALARM stream.
      */
-    fun startAlarm(customToneUri: Uri? = null) {
+    fun startAlarm(customToneUri: Uri? = null, volumeLevel: Int = 100) {
         stopAlarm()
         requestAudioFocus()
+        targetVolumePercent = volumeLevel.coerceIn(1, 100)
 
         try {
-            // Force stream volume to max
             val maxStreamVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxStreamVolume, 0)
+            val targetVolumeIndex = ((maxStreamVolume * targetVolumePercent + 99) / 100).coerceIn(1, maxStreamVolume)
+            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVolumeIndex, 0)
 
             val alarmUri = customToneUri
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
@@ -79,22 +82,41 @@ class SmartAlarmAudioManager(
                 setDataSource(context, alarmUri)
                 isLooping = true
                 setVolume(1.0f, 1.0f)
-                prepare()
-                start()
+                setOnErrorListener { _, _, _ ->
+                    fallbackToToneGenerator()
+                    true
+                }
+                setOnPreparedListener { mp ->
+                    try {
+                        mp.start()
+                    } catch (e: Exception) {
+                        fallbackToToneGenerator()
+                    }
+                }
+                prepareAsync()
             }
             currentVolume = 1.0f
             _playbackState.value = AudioPlaybackState.BLARING
         } catch (e: Exception) {
-            e.printStackTrace()
-            // High-reliability Fallback: continuous alert tone via ToneGenerator
-            try {
-                toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 100)
-                toneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK)
-            } catch (toneEx: Exception) {
-                toneEx.printStackTrace()
-            }
-            _playbackState.value = AudioPlaybackState.BLARING
+            fallbackToToneGenerator()
         }
+    }
+
+    private fun fallbackToToneGenerator() {
+        try {
+            mediaPlayer?.release()
+            mediaPlayer = null
+            val maxStreamVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            val targetVolumeIndex = ((maxStreamVolume * targetVolumePercent + 99) / 100).coerceIn(1, maxStreamVolume)
+            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVolumeIndex, 0)
+            if (toneGenerator == null) {
+                toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, targetVolumePercent)
+            }
+            toneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK)
+        } catch (toneEx: Exception) {
+            toneEx.printStackTrace()
+        }
+        _playbackState.value = AudioPlaybackState.BLARING
     }
 
     /**
@@ -132,7 +154,8 @@ class SmartAlarmAudioManager(
         currentVolume = 1.0f
         try {
             val maxStreamVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxStreamVolume, 0)
+            val targetVolumeIndex = ((maxStreamVolume * targetVolumePercent + 99) / 100).coerceIn(1, maxStreamVolume)
+            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVolumeIndex, 0)
             mediaPlayer?.setVolume(1.0f, 1.0f)
             if (mediaPlayer == null && toneGenerator != null) {
                 toneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK)
