@@ -7,6 +7,28 @@ import java.util.Calendar
  */
 object AlarmUiFormatters {
 
+    fun getHour12(hour24: Int): Int {
+        return when (hour24 % 24) {
+            0 -> 12
+            in 1..12 -> hour24
+            else -> hour24 - 12
+        }
+    }
+
+    fun isAm(hour24: Int): Boolean {
+        return (hour24 % 24) < 12
+    }
+
+    fun toHour24(hour12: Int, isAm: Boolean): Int {
+        val h = hour12.coerceIn(1, 12)
+        return when {
+            isAm && h == 12 -> 0
+            isAm -> h
+            !isAm && h == 12 -> 12
+            else -> h + 12
+        }
+    }
+
     fun formatTime12Hour(hour: Int, minute: Int): String {
         val isAm = hour < 12
         val hour12 = when (hour) {
