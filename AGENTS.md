@@ -27,8 +27,7 @@
 * **يُحظر حظراً مطلقاً** طلب أو استخدام الصلاحيات التالية:
   - ❌ `android.permission.BIND_ACCESSIBILITY_SERVICE` (خدمة إمكانية الوصول).
   - ❌ `android.permission.BIND_DEVICE_ADMIN` (مسؤول الجهاز).
-  - ❌ `android.permission.SYSTEM_ALERT_WINDOW` (الظهور فوق التطبيقات).
-* البديل المعتمد نظامياً هو استخدام **`Full-Screen Intent`** و **`AlarmManager.setAlarmClock`** وواجهات أندرويد القياسية النظيفة.
+* **إذن الظهور فوق التطبيقات (`SYSTEM_ALERT_WINDOW`):** مُعتمد ومخصص حصراً لفتح شاشة المنبه بملء الشاشة فورياً عند استخدام الهاتف ولمنع الهروب من المنبه وفقاً لـ [ADR-006](docs/adr/ADR-006-overlay-permission-for-unlocked-device-parity.md)، مع حظر أي استخدام آخر له خارج دورة رنين المنبه.
 
 ### 4. قانون خصوصية الكاميرا والمعالجة اللحظية في الذاكرة (RAM-Only Vision Law)
 * **يُحظر كتابة أو حفظ أي إطار كاميرا على قرص الهاتف** (لا في التخزين الداخلي، ولا الخارجي، ولا الـ Cache).

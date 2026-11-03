@@ -1,5 +1,10 @@
 package com.quran.alarm.ui.components
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.compose.ui.platform.LocalContext
 import android.media.AudioManager
 import android.media.ToneGenerator
 import androidx.compose.foundation.background
@@ -64,6 +69,9 @@ fun AddAlarmDialog(
     onSave: (AlarmItem) -> Unit
 ) {
     val isEditMode = alarmToEdit != null
+    val context = LocalContext.current
+    var showOverlayPermissionPrompt by remember { mutableStateOf(false) }
+    var pendingAlarmToSave by remember { mutableStateOf<AlarmItem?>(null) }
 
     val initialHour24 = alarmToEdit?.hour ?: 5
     var hour12 by remember { mutableIntStateOf(AlarmUiFormatters.getHour12(initialHour24)) }
@@ -334,6 +342,8 @@ fun AddAlarmDialog(
                                                 fontSize = 13.sp,
                                                 fontWeight = if (selectionMode == mode) FontWeight.Bold else FontWeight.Medium,
                                                 textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                                softWrap = false,
                                                 modifier = Modifier.fillMaxWidth()
                                             )
                                         },
@@ -361,6 +371,8 @@ fun AddAlarmDialog(
                                                 fontSize = 13.sp,
                                                 fontWeight = if (selectionMode == mode) FontWeight.Bold else FontWeight.Medium,
                                                 textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                                softWrap = false,
                                                 modifier = Modifier.fillMaxWidth()
                                             )
                                         },
@@ -959,7 +971,12 @@ fun AddAlarmDialog(
                         volumeLevel = volumeLevel.toInt(),
                         isSequential = isSequential
                     )
-                    onSave(savedAlarm)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                        pendingAlarmToSave = savedAlarm
+                        showOverlayPermissionPrompt = true
+                    } else {
+                        onSave(savedAlarm)
+                    }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
             ) {
@@ -975,4 +992,54 @@ fun AddAlarmDialog(
             }
         }
     )
+
+    if (showOverlayPermissionPrompt && pendingAlarmToSave != null) {
+        AlertDialog(
+            onDismissRequest = { showOverlayPermissionPrompt = false },
+            containerColor = Color(0xFF1E293B),
+            title = {
+                Text(
+                    text = "⚠️ مطلوب تفعيل الظهور فوق التطبيقات",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "لتتمكن شاشة المنبه من تصدر الشاشة بالكامل فورياً وإيقاظك لقراءة الورد القرآني دون الاكتفاء بإشعار علوي، يلزم تفعيل إذن الظهور فوق التطبيقات.",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showOverlayPermissionPrompt = false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        }
+                        onSave(pendingAlarmToSave!!)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text("تفعيل الإذن وحفظ", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showOverlayPermissionPrompt = false
+                        onSave(pendingAlarmToSave!!)
+                    }
+                ) {
+                    Text("حفظ بدون الإذن", color = Color(0xFF94A3B8))
+                }
+            }
+        )
+    }
 }

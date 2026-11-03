@@ -1,7 +1,5 @@
 package com.quran.alarm.ui
 
-import android.app.ActivityOptions
-import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -65,15 +63,15 @@ import kotlinx.coroutines.delay
 import java.util.Calendar
 
 /**
- * High-priority lock screen activity launched via FullScreenIntent when the alarm fires.
+ * High-priority lock screen activity launched via FullScreenIntent and direct intent when the alarm fires.
  *
- * Implements strict anti-bypass lockscreen behavior:
+ * Implements strict anti-bypass lockscreen behavior without system screen pinning (startLockTask):
  * - Hides navigation bars and status bar in sticky immersive mode.
  * - Blocks physical volume down / up / mute keys.
- * - Blocks back button via OnBackPressedCallback.
- * - Automatically brings activity to front if user attempts Home or Recents.
+ * - Disables back button exit via OnBackPressedCallback.
+ * - Relaunches activity to front immediately on user leave hint, pause, or stop.
  * - Displays live device time and the user's sequential Quran Wird range.
- * - Automatically advances the Wird to the next portion upon session dismissal.
+ * - Automatically advances the Wird to the next portion upon session completion.
  */
 class AlarmAlertActivity : ComponentActivity() {
 
@@ -167,21 +165,26 @@ class AlarmAlertActivity : ComponentActivity() {
         super.onResume()
         isActivityVisible = true
         setupImmersiveStickyMode()
-        try {
-            startLockTask()
-        } catch (_: Exception) {}
     }
 
     override fun onPause() {
         super.onPause()
         isActivityVisible = false
+        if (!isDismissedOrSnoozed) {
+            relaunchToFront()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        isActivityVisible = false
+        if (!isDismissedOrSnoozed) {
+            relaunchToFront()
+        }
     }
 
     override fun onDestroy() {
         isActivityVisible = false
-        try {
-            stopLockTask()
-        } catch (_: Exception) {}
         super.onDestroy()
     }
 
@@ -204,28 +207,9 @@ class AlarmAlertActivity : ComponentActivity() {
                 putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
                 putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
             }
-            val pendingIntent = PendingIntent.getActivity(
-                this,
-                alarmId + 500_000,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val sendOptions = ActivityOptions.makeBasic()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                sendOptions.setPendingIntentBackgroundActivityStartMode(
-                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-                )
-            }
-            try {
-                pendingIntent.send(this, 0, null, null, null, null, sendOptions.toBundle())
-            } catch (e: Exception) {
-                Log.w("AlarmAlertActivity", "pendingIntent.send failed: ${e.message}")
-                try {
-                    startActivity(intent)
-                } catch (_: Exception) {}
-            }
+            startActivity(intent)
         } catch (t: Throwable) {
-            Log.e("AlarmAlertActivity", "relaunchToFront error caught safely: ${t.message}")
+            Log.e("AlarmAlertActivity", "relaunchToFront error: ${t.message}")
         }
     }
 
@@ -264,9 +248,6 @@ class AlarmAlertActivity : ComponentActivity() {
             action = AlarmForegroundService.ACTION_STOP_ALARM
         }
         startService(stopIntent)
-        try {
-            stopLockTask()
-        } catch (_: Exception) {}
         finish()
     }
 
@@ -290,9 +271,6 @@ class AlarmAlertActivity : ComponentActivity() {
             action = AlarmForegroundService.ACTION_STOP_ALARM
         }
         startService(stopIntent)
-        try {
-            stopLockTask()
-        } catch (_: Exception) {}
         finish()
     }
 }

@@ -27,7 +27,7 @@ jobs:
       - name: Verify Absence of Prohibited Dangerous Permissions
         run: |
           echo "Checking for prohibited dangerous permissions (Accessibility & Device Admin)..."
-          if grep -rn "BIND_ACCESSIBILITY_SERVICE\|BIND_DEVICE_ADMIN\|SYSTEM_ALERT_WINDOW" app/src/ AndroidManifest.xml 2>/dev/null; then
+          if grep -rn "BIND_ACCESSIBILITY_SERVICE\|BIND_DEVICE_ADMIN" app/src/ AndroidManifest.xml 2>/dev/null; then
             echo "ERROR: Prohibited dangerous permission found!"
             exit 1
           else
@@ -48,6 +48,7 @@ jobs:
           test -f docs/adr/ADR-003-offline-eye-tracking-framework.md || exit 1
           test -f docs/adr/ADR-004-zero-network-and-minimal-permissions.md || exit 1
           test -f docs/adr/ADR-005-alarm-enforcement-and-auto-mute-lifecycle.md || exit 1
+          test -f docs/adr/ADR-006-overlay-permission-for-unlocked-device-parity.md || exit 1
           echo "PASS: All foundation documents are intact."
 
   build-and-test:
