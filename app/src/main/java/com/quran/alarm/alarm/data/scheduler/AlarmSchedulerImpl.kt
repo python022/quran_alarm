@@ -37,7 +37,19 @@ class AlarmSchedulerImpl(
     }
 
     override fun cancel(item: AlarmItem) {
-        val operationIntent = createOperationIntent(item)
+        cancel(item.id)
+    }
+
+    override fun cancel(alarmId: Int) {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = AlarmReceiver.ACTION_TRIGGER_ALARM
+        }
+        val operationIntent = PendingIntent.getBroadcast(
+            context,
+            alarmId + 100_000,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         alarmManager.cancel(operationIntent)
         operationIntent.cancel()
     }

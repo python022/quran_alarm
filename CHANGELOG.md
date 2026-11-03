@@ -31,6 +31,7 @@
   - [x] **PR 23 (#23):** `fix(audio): eliminate AudioTrack native leak, respect volume level, and configure DND vibration attributes`
   - [x] **PR 24 (#24):** `fix(alarm): prevent ghost alarms on reboot, remove notification dismiss bypass, and namespace PendingIntent request codes`
   - [x] **PR 25 (#25):** `fix(quran): return primary surah for shared pages in QuranStructure and auto-push bounds across selection modes`
+  - [x] **PR 26 (#26):** `refactor(arch): adopt Clean Architecture with AlarmViewModel, StateFlow, and modular UI components`
 
 - **الميزات المنفذة وفق متطلبات المستخدم والمطابقة الكاملة:**
   1. **منتقي الوقت المرن:** دعم نظام 12 ساعة مع مفتاحين مستقلين لـ (صباحاً AM / مساءً PM)، واختيار أي دقيقة بالدقة الكاملة (00..59) دقيقة بدقيقة مع سلايدر سلس للإدخال المباشر.
