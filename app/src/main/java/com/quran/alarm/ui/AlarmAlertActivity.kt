@@ -206,7 +206,7 @@ class AlarmAlertActivity : ComponentActivity() {
             }
             val pendingIntent = PendingIntent.getActivity(
                 this,
-                alarmId,
+                alarmId + 500_000,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -278,9 +278,10 @@ class AlarmAlertActivity : ComponentActivity() {
         val scheduler = AlarmSchedulerImpl(this)
         val currentAlarm = repository.getAlarmById(alarmId)
         if (currentAlarm != null) {
-            val advancedAlarm = currentAlarm.advanceToNextWird()
+            val willRepeat = currentAlarm.repeatDays.isNotEmpty()
+            val advancedAlarm = currentAlarm.advanceToNextWird().copy(isEnabled = willRepeat)
             repository.saveAlarm(advancedAlarm)
-            if (advancedAlarm.isEnabled && advancedAlarm.repeatDays.isNotEmpty()) {
+            if (willRepeat) {
                 scheduler.schedule(advancedAlarm)
             }
         }

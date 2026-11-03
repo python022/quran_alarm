@@ -55,7 +55,7 @@ class AlarmSchedulerImpl(
         }
         return PendingIntent.getBroadcast(
             context,
-            item.id,
+            item.id + 100_000,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -68,7 +68,7 @@ class AlarmSchedulerImpl(
         }
         return PendingIntent.getActivity(
             context,
-            item.id,
+            item.id + 200_000,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

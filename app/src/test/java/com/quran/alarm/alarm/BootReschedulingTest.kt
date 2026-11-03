@@ -86,4 +86,36 @@ class BootReschedulingTest {
             assertTrue("BootReceiver must be declared", content.contains("BootReceiver"))
         }
     }
+
+    @Test
+    fun expiredOneShotAlarm_isMarkedDisabled_andNotRescheduledAsGhostAlarm() {
+        val repo = TestAlarmRepository()
+        val scheduler = TestAlarmScheduler()
+
+        val pastTime = System.currentTimeMillis() - 3600_000L
+        // One-shot alarm whose trigger expired while phone was off
+        val expiredOneShot = AlarmItem(
+            id = 99,
+            hour = 5,
+            minute = 0,
+            repeatDays = emptySet(),
+            isEnabled = true,
+            explicitTriggerMillis = pastTime
+        )
+        repo.saveAlarm(expiredOneShot)
+
+        val receiver = BootReceiver().apply {
+            repositoryProvider = { repo }
+            schedulerProvider = { scheduler }
+        }
+
+        receiver.rescheduleAllAlarms(android.app.Application())
+
+        // Must NOT be scheduled!
+        assertTrue(scheduler.scheduledAlarms.none { it.id == 99 })
+        // Must be saved as isEnabled = false
+        val saved = repo.getAlarmById(99)
+        org.junit.Assert.assertNotNull(saved)
+        org.junit.Assert.assertFalse(saved!!.isEnabled)
+    }
 }

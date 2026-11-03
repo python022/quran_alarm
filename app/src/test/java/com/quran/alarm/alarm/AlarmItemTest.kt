@@ -60,5 +60,24 @@ class AlarmItemTest {
         assertEquals(1, alarm1.targetPage)
         assertEquals(604, alarm604.targetPage)
     }
-}
 
+    @Test(expected = IllegalArgumentException::class)
+    fun invalidRepeatDays_negative_throwsException() {
+        AlarmItem(
+            id = 1,
+            hour = 5,
+            minute = 30,
+            repeatDays = setOf(-1)
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun invalidRepeatDays_exceeds7_throwsException() {
+        AlarmItem(
+            id = 1,
+            hour = 5,
+            minute = 30,
+            repeatDays = setOf(8)
+        )
+    }
+}

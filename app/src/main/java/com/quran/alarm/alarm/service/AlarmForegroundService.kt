@@ -157,7 +157,7 @@ class AlarmForegroundService : Service() {
             }
             val pi = PendingIntent.getActivity(
                 this,
-                alarmId + 50000,
+                alarmId + 400_000,
                 alertIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -195,18 +195,8 @@ class AlarmForegroundService : Service() {
 
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
-            alarmId,
+            alarmId + 300_000,
             fullScreenIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val dismissIntent = Intent(this, AlarmForegroundService::class.java).apply {
-            action = ACTION_STOP_ALARM
-        }
-        val dismissPendingIntent = PendingIntent.getService(
-            this,
-            alarmId + 10000,
-            dismissIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -219,8 +209,8 @@ class AlarmForegroundService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
-            .addAction(R.mipmap.ic_launcher, "إيقاف", dismissPendingIntent)
             .build()
     }
 
