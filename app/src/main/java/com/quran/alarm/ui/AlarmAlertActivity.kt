@@ -1,6 +1,7 @@
 package com.quran.alarm.ui
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -29,19 +30,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,18 +65,23 @@ import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
 import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
 import com.quran.alarm.alarm.domain.model.AlarmItem
 import com.quran.alarm.alarm.service.AlarmForegroundService
+import com.quran.alarm.quran.data.AyahInfoDatabase
+import com.quran.alarm.quran.data.AyahInfoLineBoundsRepositoryImpl
+import com.quran.alarm.quran.data.QuranPageManager
+import com.quran.alarm.quran.domain.model.LineRect
+import com.quran.alarm.quran.ui.QuranPageView
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
 /**
  * High-priority lock screen activity launched via FullScreenIntent and direct intent when the alarm fires.
  *
- * Implements strict anti-bypass lockscreen behavior without system screen pinning (startLockTask):
+ * Implements strict anti-bypass lockscreen behavior and displays the authentic Madinah Mushaf page:
  * - Hides navigation bars and status bar in sticky immersive mode.
  * - Blocks physical volume down / up / mute keys.
  * - Disables back button exit via OnBackPressedCallback.
  * - Relaunches activity to front immediately on user leave hint, pause, or stop.
- * - Displays live device time and the user's sequential Quran Wird range.
+ * - Displays the authentic 15-line Madinah Mushaf page texture and active line highlighting.
  * - Automatically advances the Wird to the next portion upon session completion.
  */
 class AlarmAlertActivity : ComponentActivity() {
@@ -86,11 +97,18 @@ class AlarmAlertActivity : ComponentActivity() {
     private var pageCount: Int = 5
     private var isDismissedOrSnoozed = false
 
+    private lateinit var pageManager: QuranPageManager
+    private lateinit var lineBoundsRepo: AyahInfoLineBoundsRepositoryImpl
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupLockscreenFlags()
         setupImmersiveStickyMode()
         setupAntiBypassBackBlocker()
+
+        pageManager = QuranPageManager(this)
+        val db = AyahInfoDatabase.getInstance(this)
+        lineBoundsRepo = AyahInfoLineBoundsRepositoryImpl(db)
 
         alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
         alarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
@@ -104,13 +122,15 @@ class AlarmAlertActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0F172A) // Deep Night Navy
+                    color = Color(0xFF0F172A)
                 ) {
                     AlarmAlertScreen(
                         label = alarmLabel,
                         startPage = startPage,
                         endPage = endPage,
                         pageCount = pageCount,
+                        pageManager = pageManager,
+                        lineBoundsRepo = lineBoundsRepo,
                         onSnooze = { snoozeAlarm(minutes = 5) },
                         onDismissAlarm = { completeAndAdvanceWird() }
                     )
@@ -150,7 +170,6 @@ class AlarmAlertActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // Prevent muting or disabling alarm via physical volume keys or navigation keys
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP,
             KeyEvent.KEYCODE_VOLUME_DOWN,
@@ -216,7 +235,6 @@ class AlarmAlertActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus && !isDismissedOrSnoozed) {
-            // Re-apply sticky immersive mode
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.hide(WindowInsetsCompat.Type.systemBars())
         }
@@ -243,7 +261,6 @@ class AlarmAlertActivity : ComponentActivity() {
         )
         scheduler.schedule(snoozeItem)
 
-        // Stop current ringing
         val stopIntent = Intent(this, AlarmForegroundService::class.java).apply {
             action = AlarmForegroundService.ACTION_STOP_ALARM
         }
@@ -254,7 +271,6 @@ class AlarmAlertActivity : ComponentActivity() {
     private fun completeAndAdvanceWird() {
         isDismissedOrSnoozed = true
 
-        // Automatically advance Wird to the next set of pages for the next session
         val repository = AlarmRepositoryImpl(this)
         val scheduler = AlarmSchedulerImpl(this)
         val currentAlarm = repository.getAlarmById(alarmId)
@@ -281,10 +297,27 @@ fun AlarmAlertScreen(
     startPage: Int,
     endPage: Int,
     pageCount: Int,
+    pageManager: QuranPageManager? = null,
+    lineBoundsRepo: AyahInfoLineBoundsRepositoryImpl? = null,
     onSnooze: () -> Unit,
     onDismissAlarm: () -> Unit
 ) {
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var currentPage by remember { mutableIntStateOf(startPage) }
+    var activeLine by remember { mutableIntStateOf(1) }
+    var showMushafReader by remember { mutableStateOf(pageManager != null) }
+
+    var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var currentLines by remember { mutableStateOf<List<LineRect>>(emptyList()) }
+
+    // Load page bitmap and lines when currentPage changes
+    LaunchedEffect(currentPage, pageManager, lineBoundsRepo) {
+        if (pageManager != null && lineBoundsRepo != null) {
+            currentBitmap = pageManager.loadPageBitmap(currentPage)
+            currentLines = lineBoundsRepo.getLinesForPage(currentPage)
+            pageManager.preloadPages(currentPage, radius = 1)
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -304,137 +337,273 @@ fun AlarmAlertScreen(
         label = "pulseScale"
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        // Top: Actual Live Date & Big Digital Clock
+    if (showMushafReader && pageManager != null) {
+        // Fullscreen Madinah Mushaf Reader with authentic paper illumination
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(top = 24.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFFFFDF5))
         ) {
-            Text(
-                text = AlarmUiFormatters.formatCurrentDate(currentTimeMillis),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF94A3B8),
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = AlarmUiFormatters.formatCurrentDigitalTime(currentTimeMillis),
-                fontSize = 72.sp,
-                fontWeight = FontWeight.Black,
-                color = Color.White,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(72.dp)
-                    .scale(pulseScale)
-                    .background(Color(0xFF10B981).copy(alpha = 0.2f), shape = CircleShape)
+            // Top Reader Bar
+            Surface(
+                color = Color(0xFF1E293B),
+                shadowElevation = 4.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                    imageVector = Icons.Default.Notifications,
-                    contentDescription = null,
-                    tint = Color(0xFF10B981),
-                    modifier = Modifier.size(36.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (currentPage > 1) {
+                                currentPage--
+                                activeLine = 1
+                            }
+                        },
+                        enabled = currentPage > 1,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                    ) {
+                        Text("السابقة", fontSize = 12.sp)
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "صفحة $currentPage من 604",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color(0xFF38BDF8)
+                        )
+                        Text(
+                            text = "السطر $activeLine من 15",
+                            fontSize = 12.sp,
+                            color = Color(0xFF10B981)
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            if (currentPage < 604) {
+                                currentPage++
+                                activeLine = 1
+                            }
+                        },
+                        enabled = currentPage < 604,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                    ) {
+                        Text("التالية", fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // Main Mushaf Page Canvas
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                QuranPageView(
+                    pageNumber = currentPage,
+                    pageBitmap = currentBitmap,
+                    lines = currentLines,
+                    activeLine = activeLine,
+                    onLineClicked = { clickedLine ->
+                        activeLine = clickedLine
+                    },
+                    modifier = Modifier.fillMaxSize()
                 )
             }
-        }
 
-        // Center: Sacred Wird & Page Range Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
+            // Bottom Actions Control Bar
+            Surface(
+                color = Color(0xFF0F172A),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (activeLine < 15) {
+                                activeLine++
+                            } else if (currentPage < endPage) {
+                                currentPage++
+                                activeLine = 1
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = if (activeLine < 15) "السطر التالي" else "الصفحة التالية",
+                            fontSize = 13.sp,
+                            color = Color(0xFF38BDF8)
+                        )
+                    }
+
+                    Button(
+                        onClick = onDismissAlarm,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        modifier = Modifier.weight(1.2f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "إتمام الورد",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    } else {
+        // Fallback or Overview Screen with big digital clock and Wird card
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 24.dp)
             ) {
                 Text(
-                    text = label,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "الورد اليومي: من صفحة $startPage إلى صفحة $endPage",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF38BDF8),
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "($pageCount صفحات متتالية)",
-                    fontSize = 13.sp,
+                    text = AlarmUiFormatters.formatCurrentDate(currentTimeMillis),
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF10B981)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "تم قفل أزرار التنقل والصوت. عند الانتهاء سينتقل المنبه تلقائياً إلى الورد التالي.",
-                    fontSize = 11.sp,
                     color = Color(0xFF94A3B8),
                     textAlign = TextAlign.Center
                 )
-            }
-        }
 
-        // Bottom Actions: Snooze ("غفوة") and Action Button ("إتمام الورد / إيقاف")
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Snooze Button
-            Button(
-                onClick = onSnooze,
-                modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-            ) {
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Text(
-                    text = "غفوة (5 دقائق)",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFFE2E8F0)
+                    text = AlarmUiFormatters.formatCurrentDigitalTime(currentTimeMillis),
+                    fontSize = 72.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
                 )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .scale(pulseScale)
+                        .background(Color(0xFF10B981).copy(alpha = 0.2f), shape = CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = null,
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Primary Completion Button
-            Button(
-                onClick = onDismissAlarm,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
             ) {
-                Text(
-                    text = "إتمام الورد وإيقاف المنبه",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "الورد اليومي: من صفحة $startPage إلى صفحة $endPage",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "($pageCount صفحات متتالية)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF10B981)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = { showMushafReader = true },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                    ) {
+                        Text("فتح المصحف الشريف", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Button(
+                    onClick = onSnooze,
+                    modifier = Modifier
+                        .fillMaxWidth(0.6f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                ) {
+                    Text(
+                        text = "غفوة (5 دقائق)",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFFE2E8F0)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = onDismissAlarm,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text(
+                        text = "إتمام الورد وإيقاف المنبه",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
             }
         }
     }
