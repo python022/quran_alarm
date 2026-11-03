@@ -1,5 +1,8 @@
 package com.quran.alarm.alarm.ui.viewmodel
 
+import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.quran.alarm.alarm.domain.model.AlarmItem
@@ -41,6 +44,15 @@ class AlarmViewModel(
             }
             updateAlarmsState(alarms)
         }
+    }
+
+    fun checkOverlayPermission(context: Context) {
+        val isGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
+        _uiState.update { it.copy(isOverlayPermissionGranted = isGranted) }
     }
 
     fun saveAlarm(alarm: AlarmItem) {

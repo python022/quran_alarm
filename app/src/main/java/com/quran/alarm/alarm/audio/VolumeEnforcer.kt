@@ -11,7 +11,10 @@ import android.provider.Settings
  * Enforces maximum volume on [AudioManager.STREAM_ALARM] during alarm firing.
  *
  * Listens to volume mutations via [ContentObserver] and immediately resets the
- * alarm stream to maximum volume if the user tries to lower it via volume keys or quick settings.
+ * alarm stream to target volume if the user tries to lower it via volume keys or quick settings.
+ *
+ * Employs a strict re-entrancy flag ([isSelfVolumeChange]) to prevent infinite IPC feedback loops
+ * with system AudioService.
  */
 class VolumeEnforcer(
     private val context: Context,
@@ -26,11 +29,14 @@ class VolumeEnforcer(
     var targetVolumePercent: Int = 100
         private set
 
+    @Volatile
+    private var isSelfVolumeChange: Boolean = false
+
     val observer: ContentObserver by lazy {
         object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 super.onChange(selfChange, uri)
-                if (isEnforcing) {
+                if (isEnforcing && !isSelfVolumeChange) {
                     enforceTargetVolume()
                 }
             }
@@ -62,13 +68,19 @@ class VolumeEnforcer(
     }
 
     fun enforceTargetVolume() {
+        if (isSelfVolumeChange) return
         val audioManager = audioManagerProvider() ?: return
         try {
             val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
             val targetVolume = ((maxVolume * targetVolumePercent + 99) / 100).coerceIn(1, maxVolume)
             val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
             if (currentVolume < targetVolume) {
-                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVolume, 0)
+                isSelfVolumeChange = true
+                try {
+                    audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVolume, 0)
+                } finally {
+                    isSelfVolumeChange = false
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()

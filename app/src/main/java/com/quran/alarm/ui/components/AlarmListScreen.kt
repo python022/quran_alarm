@@ -1,5 +1,9 @@
 package com.quran.alarm.ui.components
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,6 +65,7 @@ fun AlarmListScreen(
     modifier: Modifier = Modifier
 ) {
     var alarmToDelete by remember { mutableStateOf<AlarmItem?>(null) }
+    val context = LocalContext.current
 
     Scaffold(
         modifier = modifier,
@@ -109,6 +115,61 @@ fun AlarmListScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
+            // 0. Overlay Permission Warning Banner
+            if (!uiState.isOverlayPermissionGranted) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF7F1D1D).copy(alpha = 0.9f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(text = "⚠️", fontSize = 16.sp)
+                            Text(
+                                text = "مطلوب إذن الظهور فوق التطبيقات",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color.White
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "لضمان رنين المنبه بملء الشاشة فورياً عند استخدام الهاتف ومنع إغلاقه قبل إنهاء الورد، يرجى تفعيل الصلاحية.",
+                            fontSize = 11.sp,
+                            color = Color(0xFFFCA5A5)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp)
+                        ) {
+                            Text(
+                                text = "تفعيل الإذن الآن",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             // 1. Khatma Progress Bar
             uiState.khatmaProgress?.let { forecast ->
                 val primaryAlarm = uiState.alarms.firstOrNull { it.isEnabled } ?: uiState.alarms.firstOrNull()

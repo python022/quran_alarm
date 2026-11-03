@@ -13,6 +13,6 @@ data class AlarmUiState(
     val nextAlarmCountdown: String = "",
     val editingAlarm: AlarmItem? = null,
     val isAddEditDialogOpen: Boolean = false,
+    val isOverlayPermissionGranted: Boolean = true,
     val userMessage: String? = null
 )
-

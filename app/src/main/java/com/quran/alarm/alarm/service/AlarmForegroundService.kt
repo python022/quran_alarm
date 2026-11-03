@@ -1,6 +1,5 @@
 package com.quran.alarm.alarm.service
 
-import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -119,6 +118,9 @@ class AlarmForegroundService : Service() {
                     vibratorManager.startVibration()
                 }
 
+                // Immediately launch AlarmAlertActivity in full screen
+                launchAlarmActivity(alarmId, label, startPage, pageCount)
+
                 // Start watchdog coroutine to guarantee AlarmAlertActivity stays front and center
                 isAlarmRinging = true
                 startWatchdog(alarmId, label, startPage, pageCount)
@@ -131,7 +133,7 @@ class AlarmForegroundService : Service() {
     private fun startWatchdog(alarmId: Int, label: String, startPage: Int, pageCount: Int) {
         serviceScope.launch {
             while (isAlarmRinging) {
-                delay(1500)
+                delay(750)
                 try {
                     if (isAlarmRinging && !AlarmAlertActivity.isActivityVisible) {
                         launchAlarmActivity(alarmId, label, startPage, pageCount)
@@ -148,35 +150,37 @@ class AlarmForegroundService : Service() {
             val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra(EXTRA_ALARM_ID, alarmId)
                 putExtra(EXTRA_ALARM_LABEL, label)
                 putExtra(EXTRA_TARGET_PAGE, startPage)
                 putExtra(EXTRA_START_PAGE, startPage)
                 putExtra(EXTRA_PAGE_COUNT, pageCount)
             }
-            val pi = PendingIntent.getActivity(
-                this,
-                alarmId + 400_000,
-                alertIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val sendOptions = ActivityOptions.makeBasic()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                sendOptions.setPendingIntentBackgroundActivityStartMode(
-                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-                )
-            }
-            try {
-                pi.send(this, 0, null, null, null, null, sendOptions.toBundle())
-            } catch (e: Exception) {
-                Log.w("AlarmForegroundService", "pi.send failed, falling back to startActivity: ${e.message}")
-                try {
-                    startActivity(alertIntent)
-                } catch (_: Exception) {}
-            }
+            startActivity(alertIntent)
         } catch (t: Throwable) {
-            Log.e("AlarmForegroundService", "launchAlarmActivity error caught safely: ${t.message}")
+            Log.e("AlarmForegroundService", "launchAlarmActivity direct error: ${t.message}")
+            try {
+                val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra(EXTRA_ALARM_ID, alarmId)
+                    putExtra(EXTRA_ALARM_LABEL, label)
+                    putExtra(EXTRA_TARGET_PAGE, startPage)
+                    putExtra(EXTRA_START_PAGE, startPage)
+                    putExtra(EXTRA_PAGE_COUNT, pageCount)
+                }
+                val pi = PendingIntent.getActivity(
+                    this,
+                    alarmId + 400_000,
+                    alertIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                pi.send()
+            } catch (_: Exception) {}
         }
     }
 
