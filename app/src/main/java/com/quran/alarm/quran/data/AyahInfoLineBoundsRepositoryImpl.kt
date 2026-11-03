@@ -19,5 +19,9 @@ class AyahInfoLineBoundsRepositoryImpl(
     override fun getLinesForPageSync(pageNumber: Int): List<LineRect> {
         return database.getLinesForPage(pageNumber)
     }
+
+    override fun getPageLineCount(pageNumber: Int): Int {
+        return database.getPageLineCount(pageNumber)
+    }
 }
 

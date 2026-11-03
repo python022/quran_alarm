@@ -1,7 +1,7 @@
 package com.quran.alarm.quran.domain.model
 
 /**
- * Represents the pixel bounding box of a single printed line in the Madinah Mushaf (1260x1920 reference).
+ * Represents the pixel bounding box of a single printed line in the Madinah Mushaf (1260x2038 reference).
  */
 data class LineRect(
     val pageNumber: Int,
@@ -19,8 +19,8 @@ data class LineRect(
     fun isValid(): Boolean {
         return pageNumber in 1..604 &&
                 lineNumber in 1..15 &&
-                minX >= 0 && maxX > minX &&
-                minY >= 0 && maxY > minY
+                minX >= 0 && maxX > minX && maxX <= 1260 &&
+                minY >= 0 && maxY > minY && maxY <= 2038
     }
 }
 

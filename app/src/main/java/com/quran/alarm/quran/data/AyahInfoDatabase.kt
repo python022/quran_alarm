@@ -6,6 +6,7 @@ import com.quran.alarm.quran.domain.model.LineRect
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Manages access to the bundled ayahinfo.db SQLite database.
@@ -97,88 +98,107 @@ class AyahInfoDatabase(
             avgHeight = 80
         }
 
-        val resolved = mutableListOf<LineRect>()
-        val maxLines = if (page in 1..2) 8 else 15
+        val resolved = mutableMapOf<Int, LineRect>()
+        val targetLines = if (page in 1..2) 8 else 15
 
-        for (l in 1..maxLines) {
+        for (l in 1..targetLines) {
             val existing = rawLines[l]
             if (existing != null) {
-                resolved.add(
-                    LineRect(
-                        pageNumber = page,
-                        lineNumber = l,
-                        minX = existing[0],
-                        maxX = existing[1],
-                        minY = existing[2],
-                        maxY = existing[3]
-                    )
+                resolved[l] = LineRect(
+                    pageNumber = page,
+                    lineNumber = l,
+                    minX = if (existing[0] == existing[1]) avgMinX else existing[0],
+                    maxX = if (existing[0] == existing[1]) avgMaxX else existing[1],
+                    minY = existing[2],
+                    maxY = existing[3]
                 )
-            } else {
-                // Interpolate gap
-                val prev = rawLines.keys.filter { it < l }.maxOrNull()
-                val next = rawLines.keys.filter { it > l }.minOrNull()
+            }
+        }
 
-                var topY: Int
-                var botY: Int
-
-                if (prev != null && next != null) {
-                    val prevBot = rawLines[prev]!![3]
-                    val nextTop = rawLines[next]!![2]
-                    val gap = nextTop - prevBot
-                    val steps = next - prev
-                    val stepY = gap.toFloat() / steps
-                    val offset = l - prev
-                    topY = (prevBot + (offset - 1) * stepY + (stepY - avgHeight) / 2f).toInt()
-                    botY = topY + avgHeight
-                } else if (prev != null) {
-                    topY = rawLines[prev]!![3] + 15
-                    botY = topY + avgHeight
-                } else if (next != null) {
-                    botY = rawLines[next]!![2] - 15
-                    topY = max(10, botY - avgHeight)
-                    if (botY <= topY) botY = topY + avgHeight
+        val missing = (1..targetLines).filter { it !in resolved }
+        val runs = mutableListOf<MutableList<Int>>()
+        if (missing.isNotEmpty()) {
+            var currRun = mutableListOf(missing[0])
+            for (idx in 1 until missing.size) {
+                val m = missing[idx]
+                if (m == currRun.last() + 1) {
+                    currRun.add(m)
                 } else {
-                    topY = 30 + (l - 1) * (avgHeight + 40)
-                    botY = topY + avgHeight
+                    runs.add(currRun)
+                    currRun = mutableListOf(m)
                 }
+            }
+            runs.add(currRun)
+        }
 
-                topY = max(0, topY)
-                botY = max(topY + 1, botY)
+        for (run in runs) {
+            val k = run.size
+            val lStart = run.first()
+            val lEnd = run.last()
+            val prevL = if (lStart - 1 in resolved) lStart - 1 else null
+            val nextL = if (lEnd + 1 in resolved) lEnd + 1 else null
 
-                resolved.add(
-                    LineRect(
-                        pageNumber = page,
-                        lineNumber = l,
-                        minX = avgMinX,
-                        maxX = avgMaxX,
-                        minY = topY,
-                        maxY = botY
-                    )
-                )
+            if (prevL != null && nextL != null) {
+                val gapTop = resolved[prevL]!!.maxY
+                val gapBot = resolved[nextL]!!.minY
+                val gapH = max(k * 10, gapBot - gapTop)
+                val slotH = gapH / k
+                for ((idx, l) in run.withIndex()) {
+                    val margin = min(6, max(1, slotH / 10))
+                    val y1 = gapTop + idx * slotH + margin
+                    var y2 = gapTop + (idx + 1) * slotH - margin
+                    if (y2 <= y1) y2 = y1 + 1
+                    resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y2)
+                }
+            } else if (nextL != null) {
+                val nextTop = resolved[nextL]!!.minY
+                val availH = max(k * 10, nextTop - 25)
+                val slotH = min(avgHeight, availH / k)
+                for ((idx, l) in run.withIndex()) {
+                    val stepsFromNext = k - idx
+                    var y2 = nextTop - 10 - (stepsFromNext - 1) * (slotH + 10)
+                    var y1 = max(15, y2 - slotH)
+                    if (y2 <= y1) y2 = y1 + 1
+                    resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y2)
+                }
+            } else if (prevL != null) {
+                val prevBot = resolved[prevL]!!.maxY
+                val availH = max(k * 10, 2030 - prevBot)
+                val slotH = min(avgHeight, availH / k)
+                for ((idx, l) in run.withIndex()) {
+                    val y1 = prevBot + 10 + idx * (slotH + 10)
+                    var y2 = min(2035, y1 + slotH)
+                    if (y2 <= y1) y2 = y1 + 1
+                    resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y2)
+                }
+            } else {
+                val slotH = avgHeight
+                for ((idx, l) in run.withIndex()) {
+                    val y1 = 30 + idx * (slotH + 15)
+                    resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y1 + slotH)
+                }
             }
         }
 
-        // Expand pages 1 and 2 to 15 slots so any 15-line query is satisfied
-        if (page in 1..2 && resolved.size < 15) {
-            while (resolved.size < 15) {
-                val last = resolved.last()
-                val nextL = resolved.size + 1
-                val topY = last.maxY + 15
-                val botY = topY + avgHeight
-                resolved.add(
-                    LineRect(
-                        pageNumber = page,
-                        lineNumber = nextL,
-                        minX = avgMinX,
-                        maxX = avgMaxX,
-                        minY = topY,
-                        maxY = botY
-                    )
-                )
+        // Expand pages 1 and 2 from 8 to 15 slots so all 15-line queries are satisfied
+        if (page in 1..2) {
+            for (l in 9..15) {
+                val prev = resolved[l - 1]!!
+                val y1 = prev.maxY + 15
+                val y2 = min(2035, y1 + avgHeight)
+                resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, max(y1 + 1, y2))
             }
         }
 
-        return resolved
+        return (1..15).map { resolved[it]!! }
+    }
+
+    /**
+     * Returns the number of readable lines on [pageNumber] (8 for pages 1 and 2, 15 for all others).
+     */
+    fun getPageLineCount(pageNumber: Int): Int {
+        val safePage = pageNumber.coerceIn(1, 604)
+        return if (safePage in 1..2) 8 else 15
     }
 
     @Synchronized

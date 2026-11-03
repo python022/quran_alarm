@@ -204,6 +204,9 @@ class AlarmAlertActivity : ComponentActivity() {
 
     override fun onDestroy() {
         isActivityVisible = false
+        if (::pageManager.isInitialized) {
+            pageManager.clearCache()
+        }
         super.onDestroy()
     }
 
@@ -337,6 +340,17 @@ fun AlarmAlertScreen(
         label = "pulseScale"
     )
 
+    val pageMaxLines = remember(currentPage, lineBoundsRepo) {
+        lineBoundsRepo?.getPageLineCount(currentPage) ?: if (currentPage in 1..2) 8 else 15
+    }
+
+    val wirdPages = remember(startPage, pageCount) {
+        (0 until pageCount).map { ((startPage - 1 + it) % 604) + 1 }
+    }
+    val pageIndexInWird = wirdPages.indexOf(currentPage)
+    val hasNextPageInWird = pageIndexInWird >= 0 && pageIndexInWird < wirdPages.size - 1
+    val nextPageInWird = if (hasNextPageInWird) wirdPages[pageIndexInWird + 1] else currentPage
+
     if (showMushafReader && pageManager != null) {
         // Fullscreen Madinah Mushaf Reader with authentic paper illumination
         Column(
@@ -379,7 +393,7 @@ fun AlarmAlertScreen(
                             color = Color(0xFF38BDF8)
                         )
                         Text(
-                            text = "السطر $activeLine من 15",
+                            text = "السطر $activeLine من $pageMaxLines",
                             fontSize = 12.sp,
                             color = Color(0xFF10B981)
                         )
@@ -413,7 +427,9 @@ fun AlarmAlertScreen(
                     lines = currentLines,
                     activeLine = activeLine,
                     onLineClicked = { clickedLine ->
-                        activeLine = clickedLine
+                        if (clickedLine in 1..pageMaxLines) {
+                            activeLine = clickedLine
+                        }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -433,18 +449,19 @@ fun AlarmAlertScreen(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            if (activeLine < 15) {
+                            if (activeLine < pageMaxLines) {
                                 activeLine++
-                            } else if (currentPage < endPage) {
-                                currentPage++
+                            } else if (hasNextPageInWird) {
+                                currentPage = nextPageInWird
                                 activeLine = 1
                             }
                         },
+                        enabled = activeLine < pageMaxLines || hasNextPageInWird,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = if (activeLine < 15) "السطر التالي" else "الصفحة التالية",
+                            text = if (activeLine < pageMaxLines) "السطر التالي" else if (hasNextPageInWird) "الصفحة التالية" else "اكتمل الورد",
                             fontSize = 13.sp,
                             color = Color(0xFF38BDF8)
                         )

@@ -5,12 +5,12 @@ import com.quran.alarm.quran.domain.model.NormalizedLineRect
 import kotlin.math.min
 
 /**
- * Transforms reference Madinah Mushaf coordinates (1260x1920) into actual screen viewport pixels
+ * Transforms reference Madinah Mushaf coordinates (1260x2038) into actual screen viewport pixels
  * while maintaining aspect ratio (FitCenter) and adding vertical absorption margins.
  */
 class CoordinateNormalizer(
     val referenceWidth: Float = 1260f,
-    val referenceHeight: Float = 1920f
+    val referenceHeight: Float = 2038f
 ) {
     data class ViewportProjection(
         val scale: Float,

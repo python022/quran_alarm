@@ -22,7 +22,7 @@ class QuranPageManager(
 ) {
     companion object {
         const val PAGES_ASSET_DIR = "quran/pages"
-        const val ESTIMATED_PAGE_BYTES = 4 * 1024 * 1024 // ~4 MB per 1260x1920 RGB_565 page
+        const val ESTIMATED_PAGE_BYTES = 1260 * 2038 * 2 // 5,135,760 bytes (~4.9 MB) per 1260x2038 RGB_565 page
 
         fun getPageFileName(pageNumber: Int): String {
             val safePage = pageNumber.coerceIn(1, 604)

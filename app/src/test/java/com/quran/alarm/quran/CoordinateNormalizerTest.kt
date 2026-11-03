@@ -16,7 +16,7 @@ class CoordinateNormalizerTest {
 
     @Before
     fun setUp() {
-        normalizer = CoordinateNormalizer(1260f, 1920f)
+        normalizer = CoordinateNormalizer(1260f, 2038f)
         sampleLine = LineRect(
             pageNumber = 3,
             lineNumber = 1,
@@ -29,12 +29,12 @@ class CoordinateNormalizerTest {
 
     @Test
     fun testExactScalingIdentity() {
-        val proj = normalizer.calculateProjection(1260f, 1920f)
+        val proj = normalizer.calculateProjection(1260f, 2038f)
         assertEquals(1.0f, proj.scale, 0.001f)
         assertEquals(0.0f, proj.offsetX, 0.001f)
         assertEquals(0.0f, proj.offsetY, 0.001f)
 
-        val norm = normalizer.normalize(sampleLine, 1260f, 1920f, verticalAbsorptionPx = 0f)
+        val norm = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 0f)
         assertEquals(91f, norm.left, 0.01f)
         assertEquals(1176f, norm.right, 0.01f)
         assertEquals(30f, norm.top, 0.01f)
@@ -67,16 +67,16 @@ class CoordinateNormalizerTest {
         val screenH = 2048f
         val proj = normalizer.calculateProjection(screenW, screenH)
 
-        // Height is constraining: 2048 / 1920 = 1.0667, Width scale: 1536 / 1260 = 1.219
-        val expectedScale = 2048f / 1920f
+        // Height is constraining: 2048 / 2038 = 1.0049, Width scale: 1536 / 1260 = 1.219
+        val expectedScale = 2048f / 2038f
         assertEquals(expectedScale, proj.scale, 0.001f)
         assertTrue("Horizontal letterboxing offset must be positive on wide tablet", proj.offsetX > 0f)
     }
 
     @Test
     fun testAbsorptionMarginExpandsLineHitArea() {
-        val withoutAbsorption = normalizer.normalize(sampleLine, 1260f, 1920f, verticalAbsorptionPx = 0f)
-        val withAbsorption = normalizer.normalize(sampleLine, 1260f, 1920f, verticalAbsorptionPx = 10f)
+        val withoutAbsorption = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 0f)
+        val withAbsorption = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 10f)
 
         assertEquals(withoutAbsorption.top - 10f, withAbsorption.top, 0.001f)
         assertEquals(withoutAbsorption.bottom + 10f, withAbsorption.bottom, 0.001f)
@@ -87,7 +87,7 @@ class CoordinateNormalizerTest {
     fun testFindLineAtDirectHitAndProximitySnap() {
         val line1 = sampleLine
         val line2 = LineRect(pageNumber = 3, lineNumber = 2, minX = 91, maxX = 1182, minY = 162, maxY = 272)
-        val normalizedList = normalizer.normalizeAll(listOf(line1, line2), 1260f, 1920f, verticalAbsorptionPx = 4f)
+        val normalizedList = normalizer.normalizeAll(listOf(line1, line2), 1260f, 2038f, verticalAbsorptionPx = 4f)
 
         // 1. Direct hit on Line 1 center
         val hit1 = normalizer.findLineAt(line1.centerX, line1.centerY, normalizedList)

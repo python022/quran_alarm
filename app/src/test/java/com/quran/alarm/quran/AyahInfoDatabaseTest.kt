@@ -88,10 +88,42 @@ class AyahInfoDatabaseTest {
         assertEquals(7, line7.lineNumber)
         assertEquals(8, line8.lineNumber)
 
-        // Line 6 and Line 7 must be vertically between line 5 and line 8
-        assertTrue("Line 6 top must be at or below line 5 top", line6.minY >= line5.minY)
-        assertTrue("Line 7 top must be at or below line 6 top", line7.minY >= line6.minY)
-        assertTrue("Line 8 bottom must be greater than line 7 bottom", line8.maxY > line7.maxY)
+        // Line 6 and Line 7 must be vertically between line 5 and line 8 without any overlap
+        assertTrue("Line 6 top must be strictly below line 5 bottom", line6.minY >= line5.maxY)
+        assertTrue("Line 7 top must be strictly below line 6 bottom", line7.minY >= line6.maxY)
+        assertTrue("Line 8 top must be strictly below line 7 bottom", line8.minY >= line7.maxY)
+    }
+
+    @Test
+    fun testMultiLineMissingAtTopPage2() {
+        // Page 2 has lines 1 and 2 missing (Surah Al-Baqarah header and Basmalah)
+        val lines = database.getLinesForPage(2)
+        assertEquals(15, lines.size)
+
+        val line1 = lines[0]
+        val line2 = lines[1]
+        val line3 = lines[2]
+
+        assertEquals(1, line1.lineNumber)
+        assertEquals(2, line2.lineNumber)
+        assertEquals(3, line3.lineNumber)
+
+        assertTrue("Line 1 top must be positive", line1.minY >= 0)
+        assertTrue("Line 2 top must be strictly below line 1 bottom", line2.minY >= line1.maxY)
+        assertTrue("Line 3 top must be strictly below line 2 bottom", line3.minY >= line2.maxY)
+    }
+
+    @Test
+    fun testGetPageLineCountReturnsCorrectReadableLines() {
+        assertEquals(8, database.getPageLineCount(1))
+        assertEquals(8, database.getPageLineCount(2))
+        assertEquals(15, database.getPageLineCount(3))
+        assertEquals(15, database.getPageLineCount(106))
+        assertEquals(15, database.getPageLineCount(604))
+
+        assertEquals(8, repository.getPageLineCount(1))
+        assertEquals(8, repository.getPageLineCount(2))
+        assertEquals(15, repository.getPageLineCount(7))
     }
 
     @Test

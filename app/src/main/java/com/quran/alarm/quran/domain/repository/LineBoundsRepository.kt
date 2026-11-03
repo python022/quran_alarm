@@ -16,5 +16,10 @@ interface LineBoundsRepository {
      * Synchronous variant for high-throughput rendering and background calculations.
      */
     fun getLinesForPageSync(pageNumber: Int): List<LineRect>
+
+    /**
+     * Returns the number of readable lines on [pageNumber] (8 for pages 1 and 2, 15 for pages 3..604).
+     */
+    fun getPageLineCount(pageNumber: Int): Int
 }
 
