@@ -43,6 +43,9 @@ data class AlarmItem(
         require(startPage in 1..604) { "Start page must be between 1 and 604" }
         require(pageCount in 1..604) { "Page count must be between 1 and 604" }
         require(volumeLevel in 1..100) { "Volume level must be between 1 and 100" }
+        require(repeatDays.all { it in Calendar.SUNDAY..Calendar.SATURDAY }) {
+            "Repeat days must contain valid Calendar day constants (SUNDAY..SATURDAY)"
+        }
     }
 
     /**

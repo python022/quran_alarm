@@ -26,8 +26,9 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         if (action == Intent.ACTION_BOOT_COMPLETED ||
-            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
-            action == Intent.ACTION_MY_PACKAGE_REPLACED
+            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == "com.htc.intent.action.QUICKBOOT_POWERON"
         ) {
             rescheduleAllAlarms(context)
         }
@@ -41,15 +42,23 @@ class BootReceiver : BroadcastReceiver() {
 
         for (alarm in activeAlarms) {
             val updatedAlarm = if (alarm.explicitTriggerMillis != null && alarm.explicitTriggerMillis <= now) {
-                // If an explicit one-shot timestamp has already elapsed while device was off, advance by 24h
-                val nextTime = calculateNextTriggerTime(alarm.explicitTriggerMillis, now)
-                val refreshed = alarm.copy(explicitTriggerMillis = nextTime)
-                repository.saveAlarm(refreshed)
-                refreshed
+                if (alarm.repeatDays.isNotEmpty()) {
+                    val nextTime = alarm.getNextTriggerMillis(now)
+                    val refreshed = alarm.copy(explicitTriggerMillis = nextTime)
+                    repository.saveAlarm(refreshed)
+                    refreshed
+                } else {
+                    // One-shot alarm elapsed while phone was powered off: do NOT ring as ghost alarm
+                    val disabled = alarm.copy(isEnabled = false)
+                    repository.saveAlarm(disabled)
+                    null
+                }
             } else {
                 alarm
             }
-            scheduler.schedule(updatedAlarm)
+            if (updatedAlarm != null && updatedAlarm.isEnabled) {
+                scheduler.schedule(updatedAlarm)
+            }
         }
     }
 
