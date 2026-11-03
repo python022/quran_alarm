@@ -17,6 +17,11 @@ import com.quran.alarm.alarm.audio.AlarmVibratorManager
 import com.quran.alarm.alarm.audio.SmartAlarmAudioManager
 import com.quran.alarm.alarm.audio.VolumeEnforcer
 import com.quran.alarm.ui.AlarmAlertActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service that plays the alarm sound, vibrates continuously, enforces max volume,
@@ -48,6 +53,10 @@ class AlarmForegroundService : Service() {
     private lateinit var vibratorManager: AlarmVibratorManager
     private lateinit var volumeEnforcer: VolumeEnforcer
 
+    private var serviceJob = Job()
+    private var serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
+    private var isAlarmRinging = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -67,6 +76,10 @@ class AlarmForegroundService : Service() {
 
         when (intent.action) {
             ACTION_STOP_ALARM -> {
+                isAlarmRinging = false
+                serviceJob.cancel()
+                serviceJob = Job()
+                serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
                 volumeEnforcer.stopEnforcing()
                 audioManager.stopAlarm()
                 vibratorManager.stopVibration()
@@ -102,10 +115,41 @@ class AlarmForegroundService : Service() {
                 if (isVibrate) {
                     vibratorManager.startVibration()
                 }
+
+                // Start watchdog coroutine to guarantee AlarmAlertActivity stays front and center
+                isAlarmRinging = true
+                startWatchdog(alarmId, label, startPage, pageCount)
             }
         }
 
         return START_STICKY
+    }
+
+    private fun startWatchdog(alarmId: Int, label: String, startPage: Int, pageCount: Int) {
+        serviceScope.launch {
+            while (isAlarmRinging) {
+                delay(1200)
+                if (isAlarmRinging && !AlarmAlertActivity.isActivityVisible) {
+                    launchAlarmActivity(alarmId, label, startPage, pageCount)
+                }
+            }
+        }
+    }
+
+    private fun launchAlarmActivity(alarmId: Int, label: String, startPage: Int, pageCount: Int) {
+        val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_ALARM_ID, alarmId)
+            putExtra(EXTRA_ALARM_LABEL, label)
+            putExtra(EXTRA_TARGET_PAGE, startPage)
+            putExtra(EXTRA_START_PAGE, startPage)
+            putExtra(EXTRA_PAGE_COUNT, pageCount)
+        }
+        try {
+            startActivity(alertIntent)
+        } catch (_: Exception) {}
     }
 
     fun buildNotification(alarmId: Int, label: String, startPage: Int, pageCount: Int): Notification {
@@ -199,6 +243,8 @@ class AlarmForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        isAlarmRinging = false
+        serviceJob.cancel()
         volumeEnforcer.stopEnforcing()
         audioManager.stopAlarm()
         vibratorManager.stopVibration()

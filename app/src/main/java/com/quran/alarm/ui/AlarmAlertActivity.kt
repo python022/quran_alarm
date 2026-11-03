@@ -76,6 +76,11 @@ import java.util.Calendar
  */
 class AlarmAlertActivity : ComponentActivity() {
 
+    companion object {
+        @Volatile
+        var isActivityVisible: Boolean = false
+    }
+
     private var alarmId: Int = 0
     private var alarmLabel: String = "ورد القرآن الكريم"
     private var startPage: Int = 1
@@ -159,7 +164,24 @@ class AlarmAlertActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        isActivityVisible = true
         setupImmersiveStickyMode()
+        try {
+            startLockTask()
+        } catch (_: Exception) {}
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isActivityVisible = false
+    }
+
+    override fun onDestroy() {
+        isActivityVisible = false
+        try {
+            stopLockTask()
+        } catch (_: Exception) {}
+        super.onDestroy()
     }
 
     override fun onUserLeaveHint() {
@@ -237,6 +259,9 @@ class AlarmAlertActivity : ComponentActivity() {
             action = AlarmForegroundService.ACTION_STOP_ALARM
         }
         startService(stopIntent)
+        try {
+            stopLockTask()
+        } catch (_: Exception) {}
         finish()
     }
 
@@ -259,6 +284,9 @@ class AlarmAlertActivity : ComponentActivity() {
             action = AlarmForegroundService.ACTION_STOP_ALARM
         }
         startService(stopIntent)
+        try {
+            stopLockTask()
+        } catch (_: Exception) {}
         finish()
     }
 }
