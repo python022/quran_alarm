@@ -126,7 +126,16 @@ class WirdProgressionTest {
     fun quranStructure_pageMapping_resolvesAccurately() {
         assertEquals("البقرة", QuranStructure.getSurahAtPage(2).nameArabic)
         assertEquals("الكهف", QuranStructure.getSurahAtPage(295).nameArabic)
-        assertEquals("الناس", QuranStructure.getSurahAtPage(604).nameArabic)
+        assertEquals("الإخلاص", QuranStructure.getSurahAtPage(604).nameArabic)
+        assertEquals("العصر", QuranStructure.getSurahAtPage(601).nameArabic)
+
+        val surahsOn604 = QuranStructure.getSurahsAtPage(604)
+        assertEquals(3, surahsOn604.size)
+        assertEquals(listOf("الإخلاص", "الفلق", "الناس"), surahsOn604.map { it.nameArabic })
+
+        val surahsOn601 = QuranStructure.getSurahsAtPage(601)
+        assertEquals(3, surahsOn601.size)
+        assertEquals(listOf("العصر", "الهمزة", "الفيل"), surahsOn601.map { it.nameArabic })
 
         assertEquals(1, QuranStructure.getJuzAtPage(1))
         assertEquals(3, QuranStructure.getJuzAtPage(42))
@@ -135,6 +144,28 @@ class WirdProgressionTest {
         assertEquals(1, QuranStructure.getHizbAtPage(1))
         assertEquals(5, QuranStructure.getHizbAtPage(42))
         assertEquals(60, QuranStructure.getHizbAtPage(604))
+    }
+
+    @Test
+    fun autoPushBounds_maintainsStartLessThanOrEqualToEnd() {
+        var startSurah = 2
+        var endSurah = 2
+
+        // User increments start past end to Surah An-Nisa (4)
+        while (startSurah < 4) {
+            startSurah++
+        }
+        if (endSurah < startSurah) {
+            endSurah = startSurah
+        }
+        assertTrue(startSurah <= endSurah)
+        assertEquals(4, endSurah)
+
+        val startPage = QuranStructure.getSurahByNumber(startSurah).startPage
+        val endPage = QuranStructure.getSurahByNumber(endSurah).endPage
+        assertTrue(startPage <= endPage)
+        val pageCount = endPage - startPage + 1
+        assertEquals(30, pageCount)
     }
 
     @Test
