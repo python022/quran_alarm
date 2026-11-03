@@ -26,6 +26,8 @@
   - [x] **PR 17 (#17):** `feat(quran): implement complete 114 Surahs, 60 Ahzab structure and Khatma forecast models`
   - [x] **PR 18 (#18):** `feat(ui): implement flexible TimePicker with AM/PM selector, exact minute picker, multi-modal Wird configurator, and Khatma progress bar`
   - [x] **PR 19 (#19):** `feat(alarm): implement unbreakable screen pinning (startLockTask) and foreground service watchdog loop`
+  - [x] **PR 21 (#21):** `fix(service): resolve background activity launch for Android 14+ via PendingIntent`
+  - [x] **PR 22 (#22):** `fix(alarm): resolve Android 14+ PendingIntent background start crash and optimize Wird selection chips layout`
 
 - **الميزات المنفذة وفق متطلبات المستخدم والمطابقة الكاملة:**
   1. **منتقي الوقت المرن:** دعم نظام 12 ساعة مع مفتاحين مستقلين لـ (صباحاً AM / مساءً PM)، واختيار أي دقيقة بالدقة الكاملة (00..59) دقيقة بدقيقة مع سلايدر سلس للإدخال المباشر.
@@ -35,6 +37,7 @@
   5. **إمكانية تعديل أي منبه موجود:** النقر على أي بطاقة منبه يفتح نافذة التعديل محملة بكافة البيانات مع حفظ التعديلات.
   6. **القفل الحديدي لشاشة الرنين:** وضع الغمر الدائم (Sticky Immersive Mode)، حظر الرجوع (`OnBackPressedCallback`)، قفل مفاتيح الصوت، وضع تثبيت الشاشة (`startLockTask`)، وحلقة حراسة الخدمة الأمامية لإعادة إطلاق شاشة التنبيه فورياً إذا حاول المستخدم الخروج.
   7. **معاينة نغمة الصوت الحية وتسمية سريعة:** معاينة درجة الصوت فور تحريك المؤشر، وشرائح تسمية سريعة بنقرة واحدة.
+  8. **استقرار الرنين الفائق وشبكة شرائح الورد (PR #22):** تصحيح طريقة تمرير خيارات `PendingIntentBackgroundActivityStartMode` في أندرويد 14+ لمنع انهيار المنبه واستمراره في الرنين والاهتزاز دون أي توقف، وإعادة تخطيط شرائح اختيار الورد القرآني على سطرين متوازيين لمنع انضغاط النصوص.
 
 - **التجربة الحية على الجهاز الواقعي (Samsung Galaxy S24 Ultra - Android 16):**
   - تم تثبيت الحزمة وإجراء سيناريوهات تفاعلية كاملة مع التقاط 7 صور إثبات حقيقية محفوظة في مجلد الأدلة:
