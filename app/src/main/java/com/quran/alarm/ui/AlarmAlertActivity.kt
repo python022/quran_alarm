@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -192,35 +193,39 @@ class AlarmAlertActivity : ComponentActivity() {
     }
 
     private fun relaunchToFront() {
-        val intent = Intent(this, AlarmAlertActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
-            putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, alarmLabel)
-            putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, startPage)
-            putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
-            putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
-        }
-        val options = ActivityOptions.makeBasic()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            options.setPendingIntentBackgroundActivityStartMode(
-                ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-            )
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            alarmId,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            options.toBundle()
-        )
         try {
-            pendingIntent.send()
-        } catch (_: Exception) {
+            val intent = Intent(this, AlarmAlertActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
+                putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, alarmLabel)
+                putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, startPage)
+                putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
+                putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                alarmId,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val sendOptions = ActivityOptions.makeBasic()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                sendOptions.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+            }
             try {
-                startActivity(intent)
-            } catch (_: Exception) {}
+                pendingIntent.send(this, 0, null, null, null, null, sendOptions.toBundle())
+            } catch (e: Exception) {
+                Log.w("AlarmAlertActivity", "pendingIntent.send failed: ${e.message}")
+                try {
+                    startActivity(intent)
+                } catch (_: Exception) {}
+            }
+        } catch (t: Throwable) {
+            Log.e("AlarmAlertActivity", "relaunchToFront error caught safely: ${t.message}")
         }
     }
 

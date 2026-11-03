@@ -39,6 +39,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -718,17 +719,64 @@ fun AddAlarmDialog(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Selection Mode Chips
-                        Row(
+                        // Selection Mode Chips (2 rows x 2 items with equal width to prevent text squishing)
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            WirdSelectionMode.values().forEach { mode ->
-                                FilterChip(
-                                    selected = selectionMode == mode,
-                                    onClick = { selectionMode = mode },
-                                    label = { Text(mode.titleArabic, fontSize = 11.sp) }
-                                )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(WirdSelectionMode.SURAHS, WirdSelectionMode.AHZAB).forEach { mode ->
+                                    FilterChip(
+                                        selected = selectionMode == mode,
+                                        onClick = { selectionMode = mode },
+                                        modifier = Modifier.weight(1f),
+                                        label = {
+                                            Text(
+                                                text = mode.titleArabic,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (selectionMode == mode) FontWeight.Bold else FontWeight.Medium,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF10B981).copy(alpha = 0.25f),
+                                            selectedLabelColor = Color(0xFF10B981),
+                                            containerColor = Color(0xFF1E293B),
+                                            labelColor = Color(0xFF94A3B8)
+                                        )
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(WirdSelectionMode.AJZAA, WirdSelectionMode.PAGES).forEach { mode ->
+                                    FilterChip(
+                                        selected = selectionMode == mode,
+                                        onClick = { selectionMode = mode },
+                                        modifier = Modifier.weight(1f),
+                                        label = {
+                                            Text(
+                                                text = mode.titleArabic,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (selectionMode == mode) FontWeight.Bold else FontWeight.Medium,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF10B981).copy(alpha = 0.25f),
+                                            selectedLabelColor = Color(0xFF10B981),
+                                            containerColor = Color(0xFF1E293B),
+                                            labelColor = Color(0xFF94A3B8)
+                                        )
+                                    )
+                                }
                             }
                         }
 

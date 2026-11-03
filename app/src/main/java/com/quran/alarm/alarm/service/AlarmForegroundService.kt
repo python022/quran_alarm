@@ -12,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.quran.alarm.R
 import com.quran.alarm.alarm.audio.AlarmVibratorManager
@@ -129,44 +130,52 @@ class AlarmForegroundService : Service() {
     private fun startWatchdog(alarmId: Int, label: String, startPage: Int, pageCount: Int) {
         serviceScope.launch {
             while (isAlarmRinging) {
-                delay(1200)
-                if (isAlarmRinging && !AlarmAlertActivity.isActivityVisible) {
-                    launchAlarmActivity(alarmId, label, startPage, pageCount)
+                delay(1500)
+                try {
+                    if (isAlarmRinging && !AlarmAlertActivity.isActivityVisible) {
+                        launchAlarmActivity(alarmId, label, startPage, pageCount)
+                    }
+                } catch (t: Throwable) {
+                    Log.e("AlarmForegroundService", "Watchdog loop safe catch: ${t.message}")
                 }
             }
         }
     }
 
     private fun launchAlarmActivity(alarmId: Int, label: String, startPage: Int, pageCount: Int) {
-        val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_ALARM_ID, alarmId)
-            putExtra(EXTRA_ALARM_LABEL, label)
-            putExtra(EXTRA_TARGET_PAGE, startPage)
-            putExtra(EXTRA_START_PAGE, startPage)
-            putExtra(EXTRA_PAGE_COUNT, pageCount)
-        }
-        val options = ActivityOptions.makeBasic()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            options.setPendingIntentBackgroundActivityStartMode(
-                ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-            )
-        }
-        val pi = PendingIntent.getActivity(
-            this,
-            alarmId + 50000,
-            alertIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            options.toBundle()
-        )
         try {
-            pi.send()
-        } catch (_: Exception) {
+            val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_ALARM_ID, alarmId)
+                putExtra(EXTRA_ALARM_LABEL, label)
+                putExtra(EXTRA_TARGET_PAGE, startPage)
+                putExtra(EXTRA_START_PAGE, startPage)
+                putExtra(EXTRA_PAGE_COUNT, pageCount)
+            }
+            val pi = PendingIntent.getActivity(
+                this,
+                alarmId + 50000,
+                alertIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val sendOptions = ActivityOptions.makeBasic()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                sendOptions.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+            }
             try {
-                startActivity(alertIntent)
-            } catch (_: Exception) {}
+                pi.send(this, 0, null, null, null, null, sendOptions.toBundle())
+            } catch (e: Exception) {
+                Log.w("AlarmForegroundService", "pi.send failed, falling back to startActivity: ${e.message}")
+                try {
+                    startActivity(alertIntent)
+                } catch (_: Exception) {}
+            }
+        } catch (t: Throwable) {
+            Log.e("AlarmForegroundService", "launchAlarmActivity error caught safely: ${t.message}")
         }
     }
 
