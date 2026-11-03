@@ -221,7 +221,18 @@ object QuranStructure {
 
     fun getSurahAtPage(page: Int): SurahInfo {
         require(page in 1..TOTAL_PAGES) { "Page must be between 1 and $TOTAL_PAGES" }
-        return SURAHS.lastOrNull { it.startPage <= page } ?: SURAHS.first()
+        // Return the primary/first surah starting on or spanning across this page
+        return SURAHS.firstOrNull { it.startPage == page }
+            ?: SURAHS.lastOrNull { it.startPage < page }
+            ?: SURAHS.first()
+    }
+
+    fun getSurahsAtPage(page: Int): List<SurahInfo> {
+        require(page in 1..TOTAL_PAGES) { "Page must be between 1 and $TOTAL_PAGES" }
+        val startingHere = SURAHS.filter { it.startPage == page }
+        if (startingHere.isNotEmpty()) return startingHere
+        val spanning = SURAHS.lastOrNull { it.startPage < page }
+        return if (spanning != null) listOf(spanning) else listOf(SURAHS.first())
     }
 
     fun getJuzAtPage(page: Int): Int {

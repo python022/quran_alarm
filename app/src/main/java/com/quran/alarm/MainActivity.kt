@@ -818,6 +818,10 @@ fun AddAlarmDialog(
                                             onClick = {
                                                 if (selectedStartSurah < 114) {
                                                     selectedStartSurah++
+                                                    if (selectedEndSurah < selectedStartSurah) {
+                                                        selectedEndSurah = selectedStartSurah
+                                                        endPage = QuranStructure.getSurahByNumber(selectedEndSurah).endPage
+                                                    }
                                                     startPage = QuranStructure.getSurahByNumber(selectedStartSurah).startPage
                                                 }
                                             },
@@ -905,6 +909,10 @@ fun AddAlarmDialog(
                                             onClick = {
                                                 if (selectedStartHizb < 60) {
                                                     selectedStartHizb++
+                                                    if (selectedEndHizb < selectedStartHizb) {
+                                                        selectedEndHizb = selectedStartHizb
+                                                        endPage = QuranStructure.getEndPageForHizb(selectedEndHizb)
+                                                    }
                                                     startPage = QuranStructure.getStartPageForHizb(selectedStartHizb)
                                                 }
                                             },
@@ -991,6 +999,10 @@ fun AddAlarmDialog(
                                             onClick = {
                                                 if (selectedStartJuz < 30) {
                                                     selectedStartJuz++
+                                                    if (selectedEndJuz < selectedStartJuz) {
+                                                        selectedEndJuz = selectedStartJuz
+                                                        endPage = QuranStructure.getEndPageForJuz(selectedEndJuz)
+                                                    }
                                                     startPage = QuranStructure.getStartPageForJuz(selectedStartJuz)
                                                 }
                                             },
@@ -1065,7 +1077,14 @@ fun AddAlarmDialog(
                                         Spacer(modifier = Modifier.width(6.dp))
 
                                         Button(
-                                            onClick = { if (startPage < 604) startPage++ },
+                                            onClick = {
+                                                if (startPage < 604) {
+                                                    startPage++
+                                                    if (endPage < startPage) {
+                                                        endPage = startPage
+                                                    }
+                                                }
+                                            },
                                             shape = CircleShape,
                                             modifier = Modifier.size(28.dp),
                                             contentPadding = PaddingValues(0.dp),
