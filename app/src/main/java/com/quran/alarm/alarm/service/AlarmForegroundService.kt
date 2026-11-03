@@ -1,5 +1,6 @@
 package com.quran.alarm.alarm.service
 
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -147,9 +148,26 @@ class AlarmForegroundService : Service() {
             putExtra(EXTRA_START_PAGE, startPage)
             putExtra(EXTRA_PAGE_COUNT, pageCount)
         }
+        val options = ActivityOptions.makeBasic()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            options.setPendingIntentBackgroundActivityStartMode(
+                ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            )
+        }
+        val pi = PendingIntent.getActivity(
+            this,
+            alarmId + 50000,
+            alertIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            options.toBundle()
+        )
         try {
-            startActivity(alertIntent)
-        } catch (_: Exception) {}
+            pi.send()
+        } catch (_: Exception) {
+            try {
+                startActivity(alertIntent)
+            } catch (_: Exception) {}
+        }
     }
 
     fun buildNotification(alarmId: Int, label: String, startPage: Int, pageCount: Int): Notification {
