@@ -32,6 +32,33 @@ class VibrationAndAudioEnforcerTest {
     }
 
     @Test
+    fun volumeEnforcer_startEnforcing_setsTargetVolumePercentage() {
+        val enforcer = VolumeEnforcer(
+            context = android.app.Application(),
+            audioManagerProvider = { null }
+        )
+        enforcer.startEnforcing(volumePercent = 45)
+        assertTrue(enforcer.isEnforcing)
+        assertEquals(45, enforcer.targetVolumePercent)
+
+        enforcer.stopEnforcing()
+        assertFalse(enforcer.isEnforcing)
+    }
+
+    @Test
+    fun volumeEnforcer_clampsInvalidVolumePercentages() {
+        val enforcer = VolumeEnforcer(
+            context = android.app.Application(),
+            audioManagerProvider = { null }
+        )
+        enforcer.startEnforcing(volumePercent = -10)
+        assertEquals(1, enforcer.targetVolumePercent)
+
+        enforcer.startEnforcing(volumePercent = 250)
+        assertEquals(100, enforcer.targetVolumePercent)
+    }
+
+    @Test
     fun verifyVibratePermissionDeclaredInManifest() {
         val manifestFile = File("src/main/AndroidManifest.xml")
         if (manifestFile.exists()) {

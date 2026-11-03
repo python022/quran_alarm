@@ -1168,9 +1168,17 @@ fun AddAlarmDialog(
                     value = volumeLevel,
                     onValueChange = { newVol ->
                         volumeLevel = newVol
+                    },
+                    onValueChangeFinished = {
                         try {
-                            val tone = ToneGenerator(AudioManager.STREAM_ALARM, newVol.toInt())
+                            val tone = ToneGenerator(AudioManager.STREAM_ALARM, volumeLevel.toInt())
                             tone.startTone(ToneGenerator.TONE_PROP_BEEP, 80)
+                            // Safely release native AudioTrack after sound finishes to prevent AudioTrack leak
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                try {
+                                    tone.release()
+                                } catch (_: Exception) {}
+                            }, 250)
                         } catch (_: Exception) {}
                     },
                     valueRange = 10f..100f,

@@ -1,6 +1,7 @@
 package com.quran.alarm.alarm.audio
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -10,7 +11,7 @@ import android.os.VibratorManager
  * Manages high-intensity haptic vibration loops for alarm wake-up.
  *
  * Uses [VibratorManager] on Android 12+ (API 31+) and legacy [Vibrator] on older APIs.
- * Executes a high-energy alert waveform repeating infinitely until cancelled.
+ * Configures [AudioAttributes.USAGE_ALARM] to punch through Do Not Disturb (DND) Priority Mode.
  */
 class AlarmVibratorManager(
     private val context: Context,
@@ -35,16 +36,22 @@ class AlarmVibratorManager(
         if (!vibrator.hasVibrator()) return
 
         try {
+            val alarmAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
+            @Suppress("DEPRECATION")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val effect = if (vibrator.hasAmplitudeControl()) {
                     VibrationEffect.createWaveform(pattern, amplitudes, 0)
                 } else {
                     VibrationEffect.createWaveform(pattern, 0)
                 }
-                vibrator.vibrate(effect)
+                vibrator.vibrate(effect, alarmAttributes)
             } else {
                 @Suppress("DEPRECATION")
-                vibrator.vibrate(pattern, 0)
+                vibrator.vibrate(pattern, 0, alarmAttributes)
             }
             isVibrating = true
         } catch (e: Exception) {

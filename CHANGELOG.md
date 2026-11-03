@@ -28,6 +28,7 @@
   - [x] **PR 19 (#19):** `feat(alarm): implement unbreakable screen pinning (startLockTask) and foreground service watchdog loop`
   - [x] **PR 21 (#21):** `fix(service): resolve background activity launch for Android 14+ via PendingIntent`
   - [x] **PR 22 (#22):** `fix(alarm): resolve Android 14+ PendingIntent background start crash and optimize Wird selection chips layout`
+  - [x] **PR 23 (#23):** `fix(audio): eliminate AudioTrack native leak, respect volume level, and configure DND vibration attributes`
 
 - **الميزات المنفذة وفق متطلبات المستخدم والمطابقة الكاملة:**
   1. **منتقي الوقت المرن:** دعم نظام 12 ساعة مع مفتاحين مستقلين لـ (صباحاً AM / مساءً PM)، واختيار أي دقيقة بالدقة الكاملة (00..59) دقيقة بدقيقة مع سلايدر سلس للإدخال المباشر.
