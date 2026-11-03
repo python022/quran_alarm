@@ -29,6 +29,7 @@ class AlarmRepositoryImpl(
         private const val KEY_PREFIX_VOLUME = "alarm_volume_"
         private const val KEY_PREFIX_SOUND_URI = "alarm_sound_uri_"
         private const val KEY_PREFIX_EXPLICIT_TIME = "alarm_explicit_time_"
+        private const val KEY_PREFIX_IS_SEQUENTIAL = "alarm_is_sequential_"
     }
 
     override fun saveAlarm(alarm: AlarmItem) {
@@ -50,6 +51,7 @@ class AlarmRepositoryImpl(
             .putInt(KEY_PREFIX_START_PAGE + idStr, alarm.startPage)
             .putInt(KEY_PREFIX_PAGE_COUNT + idStr, alarm.pageCount)
             .putInt(KEY_PREFIX_VOLUME + idStr, alarm.volumeLevel)
+            .putBoolean(KEY_PREFIX_IS_SEQUENTIAL + idStr, alarm.isSequential)
 
         if (alarm.soundUri != null) {
             editor.putString(KEY_PREFIX_SOUND_URI + idStr, alarm.soundUri)
@@ -103,6 +105,7 @@ class AlarmRepositoryImpl(
             .remove(KEY_PREFIX_VOLUME + idStr)
             .remove(KEY_PREFIX_SOUND_URI + idStr)
             .remove(KEY_PREFIX_EXPLICIT_TIME + idStr)
+            .remove(KEY_PREFIX_IS_SEQUENTIAL + idStr)
             .apply()
     }
 
@@ -124,6 +127,7 @@ class AlarmRepositoryImpl(
         val pageCount = prefs.getInt(KEY_PREFIX_PAGE_COUNT + idStr, 5)
         val volume = prefs.getInt(KEY_PREFIX_VOLUME + idStr, 100)
         val soundUri = prefs.getString(KEY_PREFIX_SOUND_URI + idStr, null)
+        val isSequential = prefs.getBoolean(KEY_PREFIX_IS_SEQUENTIAL + idStr, true)
 
         val explicitTime = if (prefs.contains(KEY_PREFIX_EXPLICIT_TIME + idStr)) {
             prefs.getLong(KEY_PREFIX_EXPLICIT_TIME + idStr, 0L)
@@ -144,7 +148,8 @@ class AlarmRepositoryImpl(
             pageCount = pageCount,
             volumeLevel = volume,
             soundUri = soundUri,
-            explicitTriggerMillis = explicitTime
+            explicitTriggerMillis = explicitTime,
+            isSequential = isSequential
         )
     }
 
