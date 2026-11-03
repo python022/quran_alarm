@@ -32,7 +32,8 @@ data class AlarmItem(
     val pageCount: Int = 5,
     val volumeLevel: Int = 100,
     val soundUri: String? = null,
-    val explicitTriggerMillis: Long? = null
+    val explicitTriggerMillis: Long? = null,
+    val isSequential: Boolean = true
 ) {
     init {
         require(id >= 0) { "Alarm ID must be non-negative" }
@@ -80,6 +81,9 @@ data class AlarmItem(
      * Wraps cleanly around page 604 (completing a Khatma back to Surah Al-Fatihah).
      */
     fun advanceToNextWird(): AlarmItem {
+        if (!isSequential) {
+            return this
+        }
         val nextStart = ((startPage + pageCount - 1) % 604) + 1
         return copy(
             startPage = nextStart,
