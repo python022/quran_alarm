@@ -26,6 +26,10 @@ class AlarmSchedulerContractTest {
             cancelledAlarms.add(item)
             scheduledAlarms.removeAll { it.id == item.id }
         }
+
+        override fun cancel(alarmId: Int) {
+            scheduledAlarms.removeAll { it.id == alarmId }
+        }
     }
 
     private lateinit var scheduler: FakeAlarmScheduler

@@ -39,6 +39,10 @@ class BootReschedulingTest {
         override fun cancel(item: AlarmItem) {
             scheduledAlarms.removeAll { it.id == item.id }
         }
+
+        override fun cancel(alarmId: Int) {
+            scheduledAlarms.removeAll { it.id == alarmId }
+        }
     }
 
     @Test

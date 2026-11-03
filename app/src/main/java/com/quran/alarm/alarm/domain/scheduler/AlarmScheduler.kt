@@ -16,5 +16,11 @@ interface AlarmScheduler {
      * Cancels an existing scheduled alarm.
      */
     fun cancel(item: AlarmItem)
-}
 
+    /**
+     * Cancels an existing scheduled alarm by its unique ID.
+     */
+    fun cancel(alarmId: Int) {
+        // Default implementation for backward compatibility with mock implementations
+    }
+}
