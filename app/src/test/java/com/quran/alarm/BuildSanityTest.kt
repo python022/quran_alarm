@@ -18,10 +18,4 @@ class BuildSanityTest {
             assertTrue("SYSTEM_ALERT_WINDOW must NOT be present", !content.contains("SYSTEM_ALERT_WINDOW"))
         }
     }
-
-    @Test
-    fun verifySanity() {
-        assertTrue(true)
-    }
 }
-
