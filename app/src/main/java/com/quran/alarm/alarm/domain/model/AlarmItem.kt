@@ -17,6 +17,7 @@ import java.util.Calendar
  * @property pageCount Number of consecutive pages assigned for the daily wird (1..50).
  * @property volumeLevel Volume level percentage (10..100%).
  * @property soundUri Optional custom tone URI string.
+ * @property soundTitle Optional human-readable title of the selected sound (preset name or filename).
  * @property explicitTriggerMillis Optional explicit epoch timestamp (used for quick tests, snooze, or exact triggers).
  */
 data class AlarmItem(
@@ -33,7 +34,8 @@ data class AlarmItem(
     val volumeLevel: Int = 100,
     val soundUri: String? = null,
     val explicitTriggerMillis: Long? = null,
-    val isSequential: Boolean = true
+    val isSequential: Boolean = true,
+    val soundTitle: String? = null
 ) {
     init {
         require(id >= 0) { "Alarm ID must be non-negative" }

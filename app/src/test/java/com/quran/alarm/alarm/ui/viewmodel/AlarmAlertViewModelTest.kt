@@ -256,6 +256,74 @@ class AlarmAlertViewModelTest {
         assertTrue("Dismiss must be enabled", viewModel.uiState.value.isDismissEnabled)
     }
 
+    @Test
+    fun testInitialStageIsRingingStage() = runTest {
+        viewModel.initialize(
+            alarmId = 1,
+            alarmLabel = "صلاة الفجر والورد القرآني",
+            rawStartPage = 10,
+            rawPageCount = 3
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("Initial stage must be RINGING before reading enters", AlarmAlertStage.RINGING, state.stage)
+        assertFalse("Dismiss must never be enabled on ringing screen", state.isDismissEnabled)
+        assertFalse("Wird is not completed on ringing screen", state.isWirdCompleted)
+    }
+
+    @Test
+    fun testStartReadingWirdTransitionsStageFromRingingToMushafReading() = runTest {
+        viewModel.initialize(
+            alarmId = 2,
+            alarmLabel = "صلاة الفجر والورد القرآني",
+            rawStartPage = 10,
+            rawPageCount = 3
+        )
+        advanceUntilIdle()
+
+        assertEquals(AlarmAlertStage.RINGING, viewModel.uiState.value.stage)
+
+        // User taps "بدء قراءة الورد"
+        viewModel.startReadingWird()
+        advanceUntilIdle()
+
+        assertEquals("Must transition to MUSHAF_READING stage", AlarmAlertStage.MUSHAF_READING, viewModel.uiState.value.stage)
+        assertFalse("Dismiss remains locked at start of recitation", viewModel.uiState.value.isDismissEnabled)
+    }
+
+    @Test
+    fun testSoundPresetsAndCustomTitles() {
+        val defaultTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(null)
+        assertEquals("نغمة المنبه الافتراضية", defaultTitle)
+
+        val adhanTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(
+            com.quran.alarm.alarm.domain.model.AlarmSoundPresets.URI_ADHAN_FAJR
+        )
+        assertEquals("أذان الفجر", adhanTitle)
+
+        val takbeerTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(
+            com.quran.alarm.alarm.domain.model.AlarmSoundPresets.URI_EID_TAKBEER
+        )
+        assertEquals("تكبيرات العيد", takbeerTitle)
+
+        val calmTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(
+            com.quran.alarm.alarm.domain.model.AlarmSoundPresets.URI_CALM_TONE
+        )
+        assertEquals("نغمة هادئة", calmTitle)
+
+        val alertTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(
+            com.quran.alarm.alarm.domain.model.AlarmSoundPresets.URI_QURAN_ALERT
+        )
+        assertEquals("تنبيه قرآني", alertTitle)
+
+        val customTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(
+            "content://media/external/audio/media/123",
+            defaultTitle = "ملف مخصص"
+        )
+        assertEquals("ملف مخصص", customTitle)
+    }
+
     // Fake implementations for testing
     private class FakeLineBoundsRepository : LineBoundsRepository {
         override suspend fun getLinesForPage(pageNumber: Int): List<LineRect> {

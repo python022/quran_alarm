@@ -26,6 +26,20 @@ import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 /**
+ * Stages of the Alarm Alert lifecycle.
+ *
+ * 1. [RINGING]: Dedicated entry ringing screen. Plays ringtone, vibrates, shows time, label,
+ *    and wird overview. User enters reading by pressing "بدء قراءة الورد" or snoozes.
+ * 2. [MUSHAF_READING]: Recitation stage. Alarm sound and vibration are silenced so user
+ *    can recite peacefully. Wake lock / fill light #FFFDF5 kept on. Dismiss button strictly locked
+ *    until all wird pages are completed.
+ */
+enum class AlarmAlertStage {
+    RINGING,
+    MUSHAF_READING
+}
+
+/**
  * State representation for the sacred Quran Wird reading session during alarm alert.
  */
 data class MushafReaderUiState(
@@ -43,7 +57,8 @@ data class MushafReaderUiState(
     val completedPages: Set<Int> = emptySet(),
     val isLoading: Boolean = true,
     val isWirdCompleted: Boolean = false,
-    val isDismissedOrSnoozed: Boolean = false
+    val isDismissedOrSnoozed: Boolean = false,
+    val stage: AlarmAlertStage = AlarmAlertStage.RINGING
 ) {
     val pageIndexInWird: Int get() = wirdPages.indexOf(currentPage)
     val hasPrevPageInWird: Boolean get() = pageIndexInWird > 0
@@ -52,10 +67,10 @@ data class MushafReaderUiState(
 
     /**
      * Law 6 in AGENTS.md (Single Sacred Mission Law):
-     * Dismissing the alarm is strictly forbidden until the entire wird is read.
+     * Dismissing the alarm is strictly forbidden until entering reading and completing the entire wird.
      */
     val isDismissEnabled: Boolean
-        get() = isWirdCompleted
+        get() = stage == AlarmAlertStage.MUSHAF_READING && isWirdCompleted
 }
 
 /**
@@ -97,11 +112,19 @@ class AlarmAlertViewModel(
                 pageMaxLines = initialMaxLines,
                 wirdPages = computedWirdPages,
                 completedPages = emptySet(),
-                isWirdCompleted = false
+                isWirdCompleted = false,
+                stage = AlarmAlertStage.RINGING
             )
         }
 
         loadPage(safeStartPage)
+    }
+
+    /**
+     * Transitions from the ringing alert screen to the sacred Mushaf reading session.
+     */
+    fun startReadingWird() {
+        _uiState.update { it.copy(stage = AlarmAlertStage.MUSHAF_READING) }
     }
 
     fun loadPage(pageNumber: Int, resetToFirstReadable: Boolean = true) {
@@ -145,7 +168,7 @@ class AlarmAlertViewModel(
         val state = _uiState.value
         val target = state.currentLines.firstOrNull { it.lineNumber == lineNumber }
         if (target != null && target.isReadable) {
-            _uiState.update { it.copy(activeLine = lineNumber) }
+            _uiState.update { it.copy(activeLine = lineNumber, stage = AlarmAlertStage.MUSHAF_READING) }
             checkCompletion()
         }
     }
@@ -160,19 +183,19 @@ class AlarmAlertViewModel(
             .minByOrNull { it.lineNumber }
 
         if (nextReadable != null) {
-            _uiState.update { it.copy(activeLine = nextReadable.lineNumber) }
+            _uiState.update { it.copy(activeLine = nextReadable.lineNumber, stage = AlarmAlertStage.MUSHAF_READING) }
             checkCompletion()
         } else if (state.hasNextPageInWird) {
             // Mark current page as completed and advance to next page in wird
             val nextPage = state.wirdPages[state.pageIndexInWird + 1]
-            _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage) }
+            _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, stage = AlarmAlertStage.MUSHAF_READING) }
             loadPage(nextPage)
         } else {
             // Reached last readable line of final wird page
             val priorPages = state.wirdPages.takeWhile { it != state.endPage }
             val allPriorCompleted = priorPages.all { it in state.completedPages }
             if (allPriorCompleted || state.wirdPages.size <= 1) {
-                _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true) }
+                _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true, stage = AlarmAlertStage.MUSHAF_READING) }
             }
         }
     }
@@ -200,7 +223,7 @@ class AlarmAlertViewModel(
         val allPriorCompleted = priorPages.all { it in state.completedPages }
 
         if (state.currentPage == state.endPage && state.activeLine >= lastReadable && (allPriorCompleted || state.wirdPages.size <= 1)) {
-            _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true) }
+            _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true, stage = AlarmAlertStage.MUSHAF_READING) }
         }
     }
 

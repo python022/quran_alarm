@@ -21,6 +21,7 @@ class AlarmReceiver : BroadcastReceiver() {
         const val EXTRA_PAGE_COUNT = "com.quran.alarm.EXTRA_PAGE_COUNT"
         const val EXTRA_VOLUME_LEVEL = "com.quran.alarm.EXTRA_VOLUME_LEVEL"
         const val EXTRA_IS_VIBRATE = "com.quran.alarm.EXTRA_IS_VIBRATE"
+        const val EXTRA_SOUND_URI = "com.quran.alarm.EXTRA_SOUND_URI"
         const val ACTION_TRIGGER_ALARM = "com.quran.alarm.ACTION_TRIGGER_ALARM"
     }
 
@@ -32,6 +33,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val pageCount = intent.getIntExtra(EXTRA_PAGE_COUNT, 5)
         val volumeLevel = intent.getIntExtra(EXTRA_VOLUME_LEVEL, 100)
         val isVibrate = intent.getBooleanExtra(EXTRA_IS_VIBRATE, true)
+        val soundUri = intent.getStringExtra(EXTRA_SOUND_URI)
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(
@@ -50,6 +52,7 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
             putExtra(AlarmForegroundService.EXTRA_VOLUME_LEVEL, volumeLevel)
             putExtra(AlarmForegroundService.EXTRA_IS_VIBRATE, isVibrate)
+            putExtra(AlarmForegroundService.EXTRA_SOUND_URI, soundUri)
         }
         ContextCompat.startForegroundService(context, serviceIntent)
 
@@ -64,6 +67,7 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
             putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
             putExtra(AlarmForegroundService.EXTRA_VOLUME_LEVEL, volumeLevel)
+            putExtra(AlarmForegroundService.EXTRA_SOUND_URI, soundUri)
         }
         try {
             context.startActivity(alertIntent)

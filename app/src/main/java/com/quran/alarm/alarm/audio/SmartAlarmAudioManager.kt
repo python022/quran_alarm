@@ -9,6 +9,8 @@ import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
+import com.quran.alarm.R
+import com.quran.alarm.alarm.domain.model.AlarmSoundPresets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +58,44 @@ class SmartAlarmAudioManager(
     private var targetVolumePercent: Int = 100
 
     /**
+     * Starts alarm playback given a tone URI string or preset URI identifier.
+     */
+    fun startAlarm(soundUriString: String?, volumeLevel: Int = 100) {
+        val uri = resolveSoundUri(soundUriString)
+        startAlarm(customToneUri = uri, volumeLevel = volumeLevel)
+    }
+
+    /**
+     * Resolves sound URI string (built-in preset, local file content URI, or system ringtone).
+     */
+    fun resolveSoundUri(soundUriString: String?): Uri? {
+        if (soundUriString.isNullOrBlank() || soundUriString == AlarmSoundPresets.URI_DEFAULT) {
+            return null
+        }
+        return when (soundUriString) {
+            AlarmSoundPresets.URI_ADHAN_FAJR -> {
+                Uri.parse("android.resource://${context.packageName}/${R.raw.adhan_fajr}")
+            }
+            AlarmSoundPresets.URI_EID_TAKBEER -> {
+                Uri.parse("android.resource://${context.packageName}/${R.raw.eid_takbeer}")
+            }
+            AlarmSoundPresets.URI_CALM_TONE -> {
+                Uri.parse("android.resource://${context.packageName}/${R.raw.calm_tone}")
+            }
+            AlarmSoundPresets.URI_QURAN_ALERT -> {
+                Uri.parse("android.resource://${context.packageName}/${R.raw.quran_alert}")
+            }
+            else -> {
+                try {
+                    Uri.parse(soundUriString)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
+    /**
      * Starts alarm playback at user-configured volume on the ALARM stream.
      */
     fun startAlarm(customToneUri: Uri? = null, volumeLevel: Int = 100) {
@@ -71,6 +111,11 @@ class SmartAlarmAudioManager(
             val alarmUri = customToneUri
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
+            if (alarmUri == null) {
+                fallbackToToneGenerator()
+                return
+            }
 
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
@@ -98,7 +143,64 @@ class SmartAlarmAudioManager(
             currentVolume = 1.0f
             _playbackState.value = AudioPlaybackState.BLARING
         } catch (e: Exception) {
+            // If custom tone failed to open, try falling back to system default alarm before ToneGenerator
+            if (customToneUri != null) {
+                try {
+                    val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                    if (defaultUri != null && defaultUri != customToneUri) {
+                        startAlarm(customToneUri = null, volumeLevel = volumeLevel)
+                        return
+                    }
+                } catch (_: Exception) {}
+            }
             fallbackToToneGenerator()
+        }
+    }
+
+    /**
+     * Previews a selected sound without looping, on STREAM_MUSIC or STREAM_ALARM.
+     */
+    fun previewSound(soundUriString: String?, volumeLevel: Int = 80, onComplete: () -> Unit = {}) {
+        stopAlarm()
+        val uri = resolveSoundUri(soundUriString)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
+        if (uri == null) {
+            onComplete()
+            return
+        }
+
+        try {
+            mediaPlayer = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                setDataSource(context, uri)
+                isLooping = false
+                val vol = (volumeLevel.coerceIn(1, 100) / 100f)
+                setVolume(vol, vol)
+                setOnCompletionListener {
+                    stopAlarm()
+                    onComplete()
+                }
+                setOnErrorListener { _, _, _ ->
+                    stopAlarm()
+                    onComplete()
+                    true
+                }
+                setOnPreparedListener { mp ->
+                    mp.start()
+                }
+                prepareAsync()
+            }
+        } catch (e: Exception) {
+            stopAlarm()
+            onComplete()
         }
     }
 

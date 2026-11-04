@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertStage
 import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModel
 import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModelFactory
 import com.quran.alarm.alarm.ui.viewmodel.MushafReaderUiState
@@ -137,6 +138,17 @@ class AlarmAlertActivity : ComponentActivity() {
                         onNextPage = { viewModel.goToNextPage() },
                         onLineClicked = { viewModel.onLineClicked(it) },
                         onNextStep = { viewModel.advanceToNextLineOrPage() },
+                        onStartReading = {
+                            viewModel.startReadingWird()
+                            val silenceIntent = Intent(this@AlarmAlertActivity, AlarmForegroundService::class.java).apply {
+                                action = AlarmForegroundService.ACTION_SILENCE_RINGING
+                                putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
+                                putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, alarmLabel)
+                                putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
+                                putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
+                            }
+                            startService(silenceIntent)
+                        },
                         onSnooze = {
                             viewModel.snooze(minutes = 5) {
                                 stopAlarmServiceAndFinish()
@@ -283,11 +295,11 @@ fun AlarmAlertScreen(
     onNextPage: () -> Unit,
     onLineClicked: (Int) -> Unit,
     onNextStep: () -> Unit,
+    onStartReading: () -> Unit,
     onSnooze: () -> Unit,
     onDismissAlarm: () -> Unit
 ) {
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var showMushafReader by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -307,7 +319,7 @@ fun AlarmAlertScreen(
         label = "pulseScale"
     )
 
-    if (showMushafReader) {
+    if (uiState.stage == AlarmAlertStage.MUSHAF_READING) {
         // Fullscreen Madinah Mushaf Reader with authentic paper illumination
         Column(
             modifier = Modifier
@@ -436,7 +448,7 @@ fun AlarmAlertScreen(
             }
         }
     } else {
-        // Fallback or Overview Screen with big digital clock and Wird card
+        // Dedicated Ringing Stage Screen before entering Quran recitation
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -446,7 +458,7 @@ fun AlarmAlertScreen(
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 24.dp)
+                modifier = Modifier.padding(top = 20.dp)
             ) {
                 Text(
                     text = AlarmUiFormatters.formatCurrentDate(currentTimeMillis),
@@ -460,7 +472,7 @@ fun AlarmAlertScreen(
 
                 Text(
                     text = AlarmUiFormatters.formatCurrentDigitalTime(currentTimeMillis),
-                    fontSize = 72.sp,
+                    fontSize = 68.sp,
                     fontWeight = FontWeight.Black,
                     color = Color.White,
                     textAlign = TextAlign.Center
@@ -504,7 +516,7 @@ fun AlarmAlertScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "الورد اليومي: من صفحة ${uiState.startPage} إلى صفحة ${uiState.endPage}",
+                        text = "ورد اليوم: صفحة ${uiState.startPage} إلى ${uiState.endPage}",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF38BDF8),
@@ -517,15 +529,6 @@ fun AlarmAlertScreen(
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF10B981)
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = { showMushafReader = true },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
-                    ) {
-                        Text("فتح المصحف الشريف", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
                 }
             }
 
@@ -533,41 +536,39 @@ fun AlarmAlertScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Prominent Hero Action: Start Reading Wird (Silences sound & vibration, enters Mushaf)
+                Button(
+                    onClick = onStartReading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text(
+                        text = "📖 بدء قراءة الورد",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Snooze option
                 Button(
                     onClick = onSnooze,
                     modifier = Modifier
-                        .fillMaxWidth(0.6f)
+                        .fillMaxWidth(0.65f)
                         .height(48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
                 ) {
                     Text(
                         text = "غفوة (5 دقائق)",
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFFE2E8F0)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = onDismissAlarm,
-                    enabled = uiState.isDismissEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFEF4444),
-                        disabledContainerColor = Color(0xFF334155)
-                    )
-                ) {
-                    Text(
-                        text = "إتمام الورد وإيقاف المنبه",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (uiState.isDismissEnabled) Color.White else Color(0xFF94A3B8)
                     )
                 }
             }

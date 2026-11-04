@@ -80,4 +80,25 @@ class AlarmItemTest {
             repeatDays = setOf(8)
         )
     }
+
+    @Test
+    fun alarmItem_withCustomSound_preservesSoundOnProgression() {
+        val alarm = AlarmItem(
+            id = 5,
+            hour = 5,
+            minute = 15,
+            startPage = 10,
+            pageCount = 5,
+            soundUri = "builtin://adhan_fajr",
+            soundTitle = "أذان الفجر"
+        )
+
+        assertEquals("builtin://adhan_fajr", alarm.soundUri)
+        assertEquals("أذان الفجر", alarm.soundTitle)
+
+        val nextAlarm = alarm.advanceToNextWird()
+        assertEquals(15, nextAlarm.startPage)
+        assertEquals("builtin://adhan_fajr", nextAlarm.soundUri)
+        assertEquals("أذان الفجر", nextAlarm.soundTitle)
+    }
 }

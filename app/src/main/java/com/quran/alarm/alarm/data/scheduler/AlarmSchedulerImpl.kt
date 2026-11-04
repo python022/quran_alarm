@@ -64,6 +64,7 @@ class AlarmSchedulerImpl(
             putExtra(AlarmReceiver.EXTRA_PAGE_COUNT, item.pageCount)
             putExtra(AlarmReceiver.EXTRA_VOLUME_LEVEL, item.volumeLevel)
             putExtra(AlarmReceiver.EXTRA_IS_VIBRATE, item.isVibrationEnabled)
+            putExtra(AlarmReceiver.EXTRA_SOUND_URI, item.soundUri)
         }
         return PendingIntent.getBroadcast(
             context,

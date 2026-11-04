@@ -97,8 +97,9 @@ fun AlarmCardItem(
                 Spacer(modifier = Modifier.height(3.dp))
 
                 val surahAtStart = QuranStructure.getSurahAtPage(alarm.startPage)
+                val soundName = alarm.soundTitle ?: com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(alarm.soundUri)
                 Text(
-                    text = "سورة ${surahAtStart.nameArabic} • من صفحة ${alarm.startPage} إلى ${alarm.endPage} (${alarm.pageCount} صفحات) • صوت ${alarm.volumeLevel}%${if (alarm.isVibrationEnabled) " • اهتزاز" else ""}",
+                    text = "سورة ${surahAtStart.nameArabic} • ص ${alarm.startPage} إلى ${alarm.endPage} (${alarm.pageCount} ص) • 🔔 $soundName (${alarm.volumeLevel}%)${if (alarm.isVibrationEnabled) " • اهتزاز" else ""}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = if (alarm.isEnabled) Color(0xFF38BDF8) else Color(0xFF475569)

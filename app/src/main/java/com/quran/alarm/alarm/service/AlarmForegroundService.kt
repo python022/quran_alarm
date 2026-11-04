@@ -35,6 +35,7 @@ class AlarmForegroundService : Service() {
     companion object {
         const val ACTION_START_ALARM = "com.quran.alarm.ACTION_START_ALARM"
         const val ACTION_STOP_ALARM = "com.quran.alarm.ACTION_STOP_ALARM"
+        const val ACTION_SILENCE_RINGING = "com.quran.alarm.ACTION_SILENCE_RINGING"
 
         const val EXTRA_ALARM_ID = "com.quran.alarm.EXTRA_ALARM_ID"
         const val EXTRA_ALARM_LABEL = "com.quran.alarm.EXTRA_ALARM_LABEL"
@@ -43,6 +44,7 @@ class AlarmForegroundService : Service() {
         const val EXTRA_PAGE_COUNT = "com.quran.alarm.EXTRA_PAGE_COUNT"
         const val EXTRA_VOLUME_LEVEL = "com.quran.alarm.EXTRA_VOLUME_LEVEL"
         const val EXTRA_IS_VIBRATE = "com.quran.alarm.EXTRA_IS_VIBRATE"
+        const val EXTRA_SOUND_URI = "com.quran.alarm.EXTRA_SOUND_URI"
 
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "quran_alarm_channel"
@@ -76,6 +78,21 @@ class AlarmForegroundService : Service() {
         }
 
         when (intent.action) {
+            ACTION_SILENCE_RINGING -> {
+                // Silences alarm audio and vibration so user can recite Quran in peace
+                volumeEnforcer.stopEnforcing()
+                audioManager.stopAlarm()
+                vibratorManager.stopVibration()
+
+                val alarmId = intent.getIntExtra(EXTRA_ALARM_ID, 0)
+                val label = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
+                val startPage = intent.getIntExtra(EXTRA_START_PAGE, 1)
+                val pageCount = intent.getIntExtra(EXTRA_PAGE_COUNT, 5)
+                val readingNotification = buildReadingNotification(alarmId, label, startPage, pageCount)
+                val notificationManager = getSystemService(NotificationManager::class.java)
+                notificationManager?.notify(NOTIFICATION_ID, readingNotification)
+                return START_STICKY
+            }
             ACTION_STOP_ALARM -> {
                 isAlarmRinging = false
                 serviceJob.cancel()
@@ -95,6 +112,7 @@ class AlarmForegroundService : Service() {
                 val pageCount = intent.getIntExtra(EXTRA_PAGE_COUNT, 5)
                 val volumeLevel = intent.getIntExtra(EXTRA_VOLUME_LEVEL, 100).coerceIn(1, 100)
                 val isVibrate = intent.getBooleanExtra(EXTRA_IS_VIBRATE, true)
+                val soundUri = intent.getStringExtra(EXTRA_SOUND_URI)
 
                 val notification = buildNotification(alarmId, label, startPage, pageCount)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -110,8 +128,8 @@ class AlarmForegroundService : Service() {
                 // Enforce user-configured volume level to prevent muting bypass
                 volumeEnforcer.startEnforcing(volumeLevel)
 
-                // Start alarm tone on STREAM_ALARM with configured volume
-                audioManager.startAlarm(volumeLevel = volumeLevel)
+                // Start alarm tone on STREAM_ALARM with configured sound and volume
+                audioManager.startAlarm(soundUriString = soundUri, volumeLevel = volumeLevel)
 
                 // Start high-intensity haptic vibration loop
                 if (isVibrate) {
@@ -217,6 +235,41 @@ class AlarmForegroundService : Service() {
             .setAutoCancel(false)
             .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
+            .build()
+    }
+
+    fun buildReadingNotification(alarmId: Int, label: String, startPage: Int, pageCount: Int): Notification {
+        val safeStart = startPage.coerceIn(1, 604)
+        val safeCount = pageCount.coerceAtLeast(1)
+        val endPage = Math.floorMod(safeStart + safeCount - 2, 604) + 1
+        val fullScreenIntent = Intent(this, AlarmAlertActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_ALARM_ID, alarmId)
+            putExtra(EXTRA_ALARM_LABEL, label)
+            putExtra(EXTRA_TARGET_PAGE, startPage)
+            putExtra(EXTRA_START_PAGE, startPage)
+            putExtra(EXTRA_PAGE_COUNT, pageCount)
+        }
+
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            this,
+            alarmId + 300_000,
+            fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("قراءة الورد القرآني جارية")
+            .setContentText("$label - صفحة $startPage إلى $endPage")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setContentIntent(fullScreenPendingIntent)
             .build()
     }
 

@@ -14,7 +14,10 @@ class AlarmServiceConstantsTest {
     fun verifyActionConstants() {
         assertEquals("com.quran.alarm.ACTION_START_ALARM", AlarmForegroundService.ACTION_START_ALARM)
         assertEquals("com.quran.alarm.ACTION_STOP_ALARM", AlarmForegroundService.ACTION_STOP_ALARM)
+        assertEquals("com.quran.alarm.ACTION_SILENCE_RINGING", AlarmForegroundService.ACTION_SILENCE_RINGING)
         assertEquals("com.quran.alarm.ACTION_TRIGGER_ALARM", AlarmReceiver.ACTION_TRIGGER_ALARM)
+        assertEquals("com.quran.alarm.EXTRA_SOUND_URI", AlarmForegroundService.EXTRA_SOUND_URI)
+        assertEquals("com.quran.alarm.EXTRA_SOUND_URI", AlarmReceiver.EXTRA_SOUND_URI)
     }
 
     @Test

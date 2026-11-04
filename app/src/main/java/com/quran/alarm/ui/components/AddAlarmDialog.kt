@@ -1,12 +1,22 @@
 package com.quran.alarm.ui.components
 
+import android.app.Activity
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import android.media.AudioManager
 import android.media.ToneGenerator
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.DisposableEffect
+import com.quran.alarm.alarm.domain.model.AlarmSoundPresets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,6 +43,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
@@ -101,6 +112,121 @@ fun AddAlarmDialog(
     var isSequential by remember { mutableStateOf(alarmToEdit?.isSequential ?: true) }
     var volumeLevel by remember { mutableFloatStateOf(alarmToEdit?.volumeLevel?.toFloat() ?: 100f) }
 
+    var selectedSoundUri by remember { mutableStateOf(alarmToEdit?.soundUri) }
+    var selectedSoundTitle by remember {
+        mutableStateOf(alarmToEdit?.soundTitle ?: AlarmSoundPresets.getTitleForUri(alarmToEdit?.soundUri))
+    }
+    var isPlayingPreview by remember { mutableStateOf(false) }
+    var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+
+    fun stopPreview() {
+        try {
+            previewPlayer?.stop()
+            previewPlayer?.release()
+        } catch (_: Exception) {}
+        previewPlayer = null
+        isPlayingPreview = false
+    }
+
+    fun playPreview(uriStr: String?) {
+        stopPreview()
+        try {
+            val uri: Uri? = when (uriStr) {
+                null, "", AlarmSoundPresets.URI_DEFAULT -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                AlarmSoundPresets.URI_ADHAN_FAJR -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.adhan_fajr}")
+                AlarmSoundPresets.URI_EID_TAKBEER -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.eid_takbeer}")
+                AlarmSoundPresets.URI_CALM_TONE -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.calm_tone}")
+                AlarmSoundPresets.URI_QURAN_ALERT -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.quran_alert}")
+                else -> Uri.parse(uriStr)
+            }
+
+            if (uri != null) {
+                val mp = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    setDataSource(context, uri)
+                    val vol = (volumeLevel / 100f).coerceIn(0.1f, 1f)
+                    setVolume(vol, vol)
+                    isLooping = false
+                    setOnCompletionListener {
+                        isPlayingPreview = false
+                    }
+                    setOnErrorListener { _, _, _ ->
+                        isPlayingPreview = false
+                        true
+                    }
+                    prepareAsync()
+                    setOnPreparedListener {
+                        it.start()
+                        isPlayingPreview = true
+                    }
+                }
+                previewPlayer = mp
+            }
+        } catch (e: Exception) {
+            isPlayingPreview = false
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            stopPreview()
+        }
+    }
+
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+
+            var name: String? = null
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1 && cursor.moveToFirst()) {
+                        name = cursor.getString(nameIndex)
+                    }
+                }
+            } catch (_: Exception) {}
+
+            val finalName = name ?: "ملف صوتي مخصص"
+            selectedSoundUri = uri.toString()
+            selectedSoundTitle = finalName
+            playPreview(uri.toString())
+        }
+    }
+
+    val ringtonePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            }
+            if (uri != null) {
+                val ringtone = RingtoneManager.getRingtone(context, uri)
+                val title = ringtone?.getTitle(context) ?: "نغمة هاتف"
+                selectedSoundUri = uri.toString()
+                selectedSoundTitle = title
+                playPreview(uri.toString())
+            }
+        }
+    }
+
     val daysList = listOf(
         Calendar.SATURDAY to "السبت",
         Calendar.SUNDAY to "الأحد",
@@ -121,7 +247,10 @@ fun AddAlarmDialog(
     val forecast = QuranStructure.calculateKhatmaForecast(startPage, calculatedPageCount)
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            stopPreview()
+            onDismiss()
+        },
         containerColor = Color(0xFF1E293B),
         title = {
             Text(
@@ -836,9 +965,156 @@ fun AddAlarmDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // 4. Repeat Schedule
+                // 4. Alarm Sound Selection Card (Presets & Local File / Ringtone Picker)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "🔔 نغمة المنبه",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF38BDF8)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Currently Selected Sound Display & Live Preview
+                        Surface(
+                            color = Color(0xFF1E293B),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "النغمة الحالية:",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                    Text(
+                                        text = selectedSoundTitle,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        if (isPlayingPreview) {
+                                            stopPreview()
+                                        } else {
+                                            playPreview(selectedSoundUri)
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isPlayingPreview) Color(0xFFEF4444) else Color(0xFF10B981)
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(34.dp)
+                                ) {
+                                    Text(
+                                        text = if (isPlayingPreview) "إيقاف ⏹" else "استماع ▶",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "النغمات المدمجة المتاحة:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AlarmSoundPresets.PRESET_OPTIONS.forEach { preset ->
+                                val isSelected = selectedSoundUri == preset.uriString ||
+                                        (selectedSoundUri == null && preset.uriString == null) ||
+                                        (selectedSoundUri == AlarmSoundPresets.URI_DEFAULT && preset.uriString == null)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedSoundUri = preset.uriString
+                                        selectedSoundTitle = preset.title
+                                        playPreview(preset.uriString)
+                                    },
+                                    label = { Text(preset.title, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF10B981).copy(alpha = 0.25f),
+                                        selectedLabelColor = Color(0xFF10B981),
+                                        containerColor = Color(0xFF1E293B),
+                                        labelColor = Color(0xFF94A3B8)
+                                    )
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Custom Audio Pickers (From Device Storage / Device Ringtone Picker)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        documentPickerLauncher.launch(arrayOf("audio/*"))
+                                    } catch (_: Exception) {}
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8))
+                            ) {
+                                Text("ملف صوتي من الجهاز", fontSize = 11.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM or RingtoneManager.TYPE_RINGTONE)
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                            val currentUri = selectedSoundUri?.let { Uri.parse(it) }
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, currentUri)
+                                        }
+                                        ringtonePickerLauncher.launch(intent)
+                                    } catch (_: Exception) {}
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8))
+                            ) {
+                                Text("نغمات الهاتف", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 5. Repeat Schedule
                 Text(
                     text = "التكرار",
                     fontSize = 13.sp,
@@ -955,6 +1231,7 @@ fun AddAlarmDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    stopPreview()
                     val final24Hour = AlarmUiFormatters.toHour24(hour12, isAm)
                     val idToSave = alarmToEdit?.id ?: (System.currentTimeMillis() % 100000).toInt()
                     val savedAlarm = AlarmItem(
@@ -969,6 +1246,8 @@ fun AddAlarmDialog(
                         startPage = startPage,
                         pageCount = calculatedPageCount,
                         volumeLevel = volumeLevel.toInt(),
+                        soundUri = selectedSoundUri,
+                        soundTitle = selectedSoundTitle,
                         isSequential = isSequential
                     )
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
@@ -987,7 +1266,12 @@ fun AddAlarmDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = {
+                    stopPreview()
+                    onDismiss()
+                }
+            ) {
                 Text("إلغاء", color = Color(0xFF94A3B8))
             }
         }

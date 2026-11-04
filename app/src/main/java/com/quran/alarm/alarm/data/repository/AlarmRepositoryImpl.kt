@@ -28,6 +28,7 @@ class AlarmRepositoryImpl(
         private const val KEY_PREFIX_PAGE_COUNT = "alarm_page_count_"
         private const val KEY_PREFIX_VOLUME = "alarm_volume_"
         private const val KEY_PREFIX_SOUND_URI = "alarm_sound_uri_"
+        private const val KEY_PREFIX_SOUND_TITLE = "alarm_sound_title_"
         private const val KEY_PREFIX_EXPLICIT_TIME = "alarm_explicit_time_"
         private const val KEY_PREFIX_IS_SEQUENTIAL = "alarm_is_sequential_"
     }
@@ -57,6 +58,12 @@ class AlarmRepositoryImpl(
             editor.putString(KEY_PREFIX_SOUND_URI + idStr, alarm.soundUri)
         } else {
             editor.remove(KEY_PREFIX_SOUND_URI + idStr)
+        }
+
+        if (alarm.soundTitle != null) {
+            editor.putString(KEY_PREFIX_SOUND_TITLE + idStr, alarm.soundTitle)
+        } else {
+            editor.remove(KEY_PREFIX_SOUND_TITLE + idStr)
         }
 
         if (alarm.explicitTriggerMillis != null) {
@@ -104,6 +111,7 @@ class AlarmRepositoryImpl(
             .remove(KEY_PREFIX_PAGE_COUNT + idStr)
             .remove(KEY_PREFIX_VOLUME + idStr)
             .remove(KEY_PREFIX_SOUND_URI + idStr)
+            .remove(KEY_PREFIX_SOUND_TITLE + idStr)
             .remove(KEY_PREFIX_EXPLICIT_TIME + idStr)
             .remove(KEY_PREFIX_IS_SEQUENTIAL + idStr)
             .apply()
@@ -127,6 +135,7 @@ class AlarmRepositoryImpl(
         val pageCount = prefs.getInt(KEY_PREFIX_PAGE_COUNT + idStr, 5)
         val volume = prefs.getInt(KEY_PREFIX_VOLUME + idStr, 100)
         val soundUri = prefs.getString(KEY_PREFIX_SOUND_URI + idStr, null)
+        val soundTitle = prefs.getString(KEY_PREFIX_SOUND_TITLE + idStr, null)
         val isSequential = prefs.getBoolean(KEY_PREFIX_IS_SEQUENTIAL + idStr, true)
 
         val explicitTime = if (prefs.contains(KEY_PREFIX_EXPLICIT_TIME + idStr)) {
@@ -149,7 +158,8 @@ class AlarmRepositoryImpl(
             volumeLevel = volume,
             soundUri = soundUri,
             explicitTriggerMillis = explicitTime,
-            isSequential = isSequential
+            isSequential = isSequential,
+            soundTitle = soundTitle
         )
     }
 
