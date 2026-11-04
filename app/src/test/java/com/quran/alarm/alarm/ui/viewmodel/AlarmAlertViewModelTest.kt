@@ -164,6 +164,98 @@ class AlarmAlertViewModelTest {
         assertEquals("Clicking surah header must be ignored", initialActive, viewModel.uiState.value.activeLine)
     }
 
+    @Test
+    fun testAntiBypassPreventsPrematureDismissalWhenJumpingToEndPage() = runTest {
+        // Wird of 3 pages: 10, 11, 12
+        viewModel.initialize(
+            alarmId = 42,
+            alarmLabel = "Wird 3 pages",
+            rawStartPage = 10,
+            rawPageCount = 3
+        )
+        advanceUntilIdle()
+
+        // User jumps to page 11 then 12 via next page button without reading page 10
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+
+        assertEquals(12, viewModel.uiState.value.currentPage)
+        assertEquals(12, viewModel.uiState.value.endPage)
+
+        // User clicks line 15 on page 12
+        viewModel.onLineClicked(15)
+        advanceUntilIdle()
+
+        // Anti-bypass gate: must NOT allow dismissal because pages 10 and 11 were not completed!
+        assertFalse("Must not allow dismissal when skipping earlier pages", viewModel.uiState.value.isDismissEnabled)
+        assertFalse("Wird must not be marked completed when prior pages are unread", viewModel.uiState.value.isWirdCompleted)
+    }
+
+    @Test
+    fun testKhatmaWrapAroundNavigationAndCompletion() = runTest {
+        // Khatma boundary: page 604 and page 1
+        viewModel.initialize(
+            alarmId = 99,
+            alarmLabel = "Khatma",
+            rawStartPage = 604,
+            rawPageCount = 2
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(listOf(604, 1), state.wirdPages)
+        assertEquals(604, state.currentPage)
+        assertEquals(1, state.endPage)
+        assertFalse("Cannot go back before first wird page", state.hasPrevPageInWird)
+        assertTrue("Can go forward to next wird page (page 1)", state.hasNextPageInWird)
+
+        // Read page 604 lines 1..15
+        for (l in 1..15) {
+            viewModel.advanceToNextLineOrPage()
+            advanceUntilIdle()
+        }
+
+        // Now on page 1 (starts at first readable line: line 2)
+        assertEquals(1, viewModel.uiState.value.currentPage)
+        assertEquals(2, viewModel.uiState.value.activeLine)
+        assertTrue("Can navigate back to page 604 in wird", viewModel.uiState.value.hasPrevPageInWird)
+        assertFalse("Cannot navigate past last page in wird", viewModel.uiState.value.hasNextPageInWird)
+        assertFalse("Not completed yet", viewModel.uiState.value.isDismissEnabled)
+
+        // Read through remaining readable lines of page 1 (lines 3..8)
+        for (l in 3..8) {
+            viewModel.advanceToNextLineOrPage()
+            advanceUntilIdle()
+        }
+
+        assertEquals(8, viewModel.uiState.value.activeLine)
+        assertTrue("Must be completed after finishing final page of Khatma wrap-around", viewModel.uiState.value.isWirdCompleted)
+        assertTrue("Dismiss button must be enabled", viewModel.uiState.value.isDismissEnabled)
+    }
+
+    @Test
+    fun testPageEndingInSurahHeaderCompletesOnLastReadableLine() = runTest {
+        // Page 76 ends with SURAH_HEADER at line 15; line 14 is the last readable line
+        viewModel.initialize(
+            alarmId = 76,
+            alarmLabel = "Page 76",
+            rawStartPage = 76,
+            rawPageCount = 1
+        )
+        advanceUntilIdle()
+
+        assertEquals(14, viewModel.uiState.value.lastReadableLineOnPage)
+
+        // Click line 14
+        viewModel.onLineClicked(14)
+        advanceUntilIdle()
+
+        assertTrue("Must complete when reaching last readable line (line 14)", viewModel.uiState.value.isWirdCompleted)
+        assertTrue("Dismiss must be enabled", viewModel.uiState.value.isDismissEnabled)
+    }
+
     // Fake implementations for testing
     private class FakeLineBoundsRepository : LineBoundsRepository {
         override suspend fun getLinesForPage(pageNumber: Int): List<LineRect> {
@@ -172,6 +264,7 @@ class AlarmAlertViewModelTest {
                 val type = when {
                     pageNumber == 106 && l == 6 -> LineType.SURAH_HEADER
                     pageNumber == 106 && l == 7 -> LineType.BASMALAH
+                    pageNumber == 76 && l == 15 -> LineType.SURAH_HEADER
                     pageNumber == 1 && l == 1 -> LineType.SURAH_HEADER
                     pageNumber == 2 && l == 1 -> LineType.SURAH_HEADER
                     pageNumber == 2 && l == 2 -> LineType.BASMALAH

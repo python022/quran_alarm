@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -52,7 +52,9 @@ fun QuranPageView(
         lines.firstOrNull { it.lineNumber == activeLine && it.isReadable }
     }
 
-    Box(
+    val cornerRadius = remember { CornerRadius(12f, 12f) }
+
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(pageColor)
@@ -60,17 +62,45 @@ fun QuranPageView(
                 contentDescription = "صفحة المصحف الشريف رقم $pageNumber"
             }
     ) {
+        val canvasW = constraints.maxWidth.toFloat()
+        val canvasH = constraints.maxHeight.toFloat()
+
+        val proj = remember(canvasW, canvasH) {
+            normalizer.calculateProjection(canvasW, canvasH)
+        }
+        val dstOffset = remember(proj) {
+            IntOffset(proj.offsetX.toInt(), proj.offsetY.toInt())
+        }
+        val dstSize = remember(proj) {
+            IntSize(proj.renderedWidth.toInt(), proj.renderedHeight.toInt())
+        }
+
+        val normHighlight = remember(targetLine, canvasW, canvasH) {
+            targetLine?.let { line ->
+                normalizer.normalize(line, canvasW, canvasH, verticalAbsorptionPx = 4f)
+            }
+        }
+        val highlightTopLeft = remember(normHighlight) {
+            normHighlight?.let { Offset(it.left, it.top) }
+        }
+        val highlightSize = remember(normHighlight) {
+            normHighlight?.let { Size(it.width, it.height) }
+        }
+
+        val normalizedLines = remember(lines, canvasW, canvasH) {
+            normalizer.normalizeAll(lines, canvasW, canvasH)
+        }
+
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(lines, onLineClicked, density) {
+                .pointerInput(normalizedLines, onLineClicked, density) {
                     if (onLineClicked != null) {
                         detectTapGestures { tapOffset ->
-                            val normalized = normalizer.normalizeAll(lines, size.width.toFloat(), size.height.toFloat())
                             val clickedLine = normalizer.findLineAt(
                                 tapOffset.x,
                                 tapOffset.y,
-                                normalized,
+                                normalizedLines,
                                 density = density
                             )
                             if (clickedLine != null) {
@@ -83,26 +113,20 @@ fun QuranPageView(
                     }
                 }
         ) {
-            val canvasW = size.width
-            val canvasH = size.height
-
             if (imageBitmap != null) {
-                val proj = normalizer.calculateProjection(canvasW, canvasH)
-
                 drawImage(
                     image = imageBitmap,
-                    dstOffset = IntOffset(proj.offsetX.toInt(), proj.offsetY.toInt()),
-                    dstSize = IntSize(proj.renderedWidth.toInt(), proj.renderedHeight.toInt())
+                    dstOffset = dstOffset,
+                    dstSize = dstSize
                 )
 
-                // Render active line highlight only if target is readable
-                if (targetLine != null) {
-                    val norm = normalizer.normalize(targetLine, canvasW, canvasH, verticalAbsorptionPx = 4f)
+                // Render active line highlight only if target is readable (zero allocations inside onDraw)
+                if (highlightTopLeft != null && highlightSize != null) {
                     drawRoundRect(
                         color = highlightColor,
-                        topLeft = Offset(norm.left, norm.top),
-                        size = Size(norm.width, norm.height),
-                        cornerRadius = CornerRadius(12f, 12f)
+                        topLeft = highlightTopLeft,
+                        size = highlightSize,
+                        cornerRadius = cornerRadius
                     )
                 }
             }

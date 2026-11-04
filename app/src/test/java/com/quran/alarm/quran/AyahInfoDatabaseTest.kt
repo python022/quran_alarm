@@ -165,6 +165,48 @@ class AyahInfoDatabaseTest {
     }
 
     @Test
+    fun testSurahAtTawbahPage187HasHeaderWithoutBasmalah() {
+        // Page 187 is Surah At-Tawbah: line 1 is SURAH_HEADER and has no Basmalah
+        val lines = database.getLinesForPage(187)
+        assertEquals(15, lines.size)
+        val line1 = lines[0]
+        assertEquals(1, line1.lineNumber)
+        assertEquals(com.quran.alarm.quran.domain.model.LineType.SURAH_HEADER, line1.lineType)
+        assertTrue("Page 187 line 1 header must not be readable", !line1.isReadable)
+
+        val line2 = lines[1]
+        assertEquals(com.quran.alarm.quran.domain.model.LineType.AYAH_TEXT, line2.lineType)
+        assertTrue("Page 187 line 2 must be readable ayah text", line2.isReadable)
+    }
+
+    @Test
+    fun testPageBoundarySurahHeaderAndBasmalahClassification() {
+        // Page 76 line 15 is Surah An-Nisa header; Page 77 line 1 is Basmalah
+        val lines76 = database.getLinesForPage(76)
+        val line76_15 = lines76.last()
+        assertEquals(15, line76_15.lineNumber)
+        assertEquals(com.quran.alarm.quran.domain.model.LineType.SURAH_HEADER, line76_15.lineType)
+        assertTrue(!line76_15.isReadable)
+
+        val lines77 = database.getLinesForPage(77)
+        val line77_1 = lines77.first()
+        assertEquals(1, line77_1.lineNumber)
+        assertEquals(com.quran.alarm.quran.domain.model.LineType.BASMALAH, line77_1.lineType)
+        assertTrue("Basmalah on line 1 must be readable", line77_1.isReadable)
+
+        // Page 331 line 15 is Surah Al-Hajj header; Page 332 line 1 is Basmalah
+        val lines331 = database.getLinesForPage(331)
+        val line331_15 = lines331.last()
+        assertEquals(com.quran.alarm.quran.domain.model.LineType.SURAH_HEADER, line331_15.lineType)
+        assertTrue(!line331_15.isReadable)
+
+        val lines332 = database.getLinesForPage(332)
+        val line332_1 = lines332.first()
+        assertEquals(com.quran.alarm.quran.domain.model.LineType.BASMALAH, line332_1.lineType)
+        assertTrue("Basmalah on line 1 of page 332 must be readable", line332_1.isReadable)
+    }
+
+    @Test
     fun testOutOfRangePagesCoercedSafely() {
         val pageZero = database.getLinesForPage(0)
         assertEquals("Page 0 coerces to page 1", 1, pageZero.first().pageNumber)

@@ -116,9 +116,9 @@ class AlarmAlertActivity : ComponentActivity() {
 
         alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
         alarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
-        val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1)
-        startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage)
-        pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5)
+        val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1).coerceIn(1, 604)
+        startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
+        pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
 
         if (savedInstanceState == null) {
             viewModel.initialize(alarmId, alarmLabel, startPage, pageCount)
@@ -225,6 +225,9 @@ class AlarmAlertActivity : ComponentActivity() {
 
     override fun onDestroy() {
         isActivityVisible = false
+        if (::pageManager.isInitialized) {
+            pageManager.clearCache()
+        }
         super.onDestroy()
     }
 
@@ -326,7 +329,7 @@ fun AlarmAlertScreen(
                 ) {
                     OutlinedButton(
                         onClick = onPrevPage,
-                        enabled = uiState.currentPage > 1,
+                        enabled = uiState.hasPrevPageInWird,
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
@@ -349,7 +352,7 @@ fun AlarmAlertScreen(
 
                     OutlinedButton(
                         onClick = onNextPage,
-                        enabled = uiState.currentPage < 604,
+                        enabled = uiState.hasNextPageInWird,
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
@@ -392,9 +395,9 @@ fun AlarmAlertScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = if (uiState.activeLine < uiState.pageMaxLines) {
+                            text = if (uiState.activeLine < uiState.lastReadableLineOnPage) {
                                 "السطر التالي"
-                            } else if (uiState.currentPage != uiState.endPage) {
+                            } else if (uiState.hasNextPageInWird) {
                                 "الصفحة التالية"
                             } else {
                                 "إتمام الورد"

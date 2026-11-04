@@ -17,7 +17,8 @@ import kotlin.math.min
  * and provides queries for glyph and line coordinates with strict monotonic separation.
  */
 class AyahInfoDatabase(
-    private val dbFile: File
+    private val dbFile: File,
+    private val context: Context? = null
 ) {
     companion object {
         const val ASSET_PATH = "quran/ayahinfo.db"
@@ -31,7 +32,10 @@ class AyahInfoDatabase(
         private var instance: AyahInfoDatabase? = null
 
         suspend fun getInstanceAsync(context: Context): AyahInfoDatabase = withContext(Dispatchers.IO) {
-            getInstance(context)
+            val appContext = context.applicationContext
+            val targetFile = appContext.getDatabasePath(DB_NAME)
+            ensureExtracted(appContext, targetFile)
+            getInstance(appContext)
         }
 
         fun getInstance(context: Context): AyahInfoDatabase {
@@ -39,39 +43,44 @@ class AyahInfoDatabase(
                 instance ?: run {
                     val appContext = context.applicationContext
                     val targetFile = appContext.getDatabasePath(DB_NAME)
-                    val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    val installedVersion = prefs.getInt(KEY_DB_VERSION, -1)
+                    AyahInfoDatabase(targetFile, appContext).also { instance = it }
+                }
+            }
+        }
 
-                    val needsExtraction = !targetFile.exists() ||
-                            targetFile.length() != EXPECTED_DB_SIZE ||
-                            installedVersion != DB_VERSION
+        @Synchronized
+        fun ensureExtracted(appContext: Context, targetFile: File) {
+            val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val installedVersion = prefs.getInt(KEY_DB_VERSION, -1)
 
-                    if (needsExtraction) {
-                        targetFile.parentFile?.mkdirs()
-                        val tmpFile = File(targetFile.parentFile, "$DB_NAME.tmp")
-                        if (tmpFile.exists()) {
-                            tmpFile.delete()
-                        }
-                        appContext.assets.open(ASSET_PATH).use { input ->
-                            FileOutputStream(tmpFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        if (tmpFile.length() == EXPECTED_DB_SIZE || tmpFile.length() > 5_000_000L) {
-                            if (targetFile.exists()) {
-                                targetFile.delete()
-                            }
-                            if (!tmpFile.renameTo(targetFile)) {
-                                tmpFile.copyTo(targetFile, overwrite = true)
-                                tmpFile.delete()
-                            }
-                            prefs.edit().putInt(KEY_DB_VERSION, DB_VERSION).apply()
-                        } else {
-                            tmpFile.delete()
-                            throw IllegalStateException("Failed to extract complete ayahinfo.db asset")
-                        }
+            val needsExtraction = !targetFile.exists() ||
+                    targetFile.length() != EXPECTED_DB_SIZE ||
+                    installedVersion != DB_VERSION
+
+            if (needsExtraction) {
+                targetFile.parentFile?.mkdirs()
+                val tmpFile = File(targetFile.parentFile, "$DB_NAME.tmp")
+                if (tmpFile.exists()) {
+                    tmpFile.delete()
+                }
+                appContext.assets.open(ASSET_PATH).use { input ->
+                    FileOutputStream(tmpFile).use { output ->
+                        input.copyTo(output)
                     }
-                    AyahInfoDatabase(targetFile).also { instance = it }
+                }
+                if (tmpFile.length() == EXPECTED_DB_SIZE) {
+                    if (targetFile.exists()) {
+                        targetFile.delete()
+                    }
+                    if (!tmpFile.renameTo(targetFile)) {
+                        tmpFile.copyTo(targetFile, overwrite = true)
+                        tmpFile.delete()
+                    }
+                    prefs.edit().putInt(KEY_DB_VERSION, DB_VERSION).apply()
+                } else {
+                    val actualLength = tmpFile.length()
+                    tmpFile.delete()
+                    throw IllegalStateException("Failed to extract complete ayahinfo.db asset: got $actualLength bytes, expected $EXPECTED_DB_SIZE")
                 }
             }
         }
@@ -86,9 +95,22 @@ class AyahInfoDatabase(
         if (current != null && current.isOpen) {
             return current
         }
+        if (context != null) {
+            ensureExtracted(context, dbFile)
+        }
         val opened = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
         sqliteDb = opened
         return opened
+    }
+
+    private fun resolveMissingLineType(page: Int, lineNumber: Int, runSize: Int, indexInRun: Int): LineType {
+        return when {
+            runSize == 2 -> if (indexInRun == 0) LineType.SURAH_HEADER else LineType.BASMALAH
+            lineNumber == 1 && (page == 1 || page == 187) -> LineType.SURAH_HEADER
+            lineNumber == 1 -> LineType.BASMALAH
+            lineNumber == 15 -> LineType.SURAH_HEADER
+            else -> LineType.SURAH_HEADER
+        }
     }
 
     /**
@@ -186,11 +208,7 @@ class AyahInfoDatabase(
                     val y1 = gapTop + idx * slotH + margin
                     var y2 = gapTop + (idx + 1) * slotH - margin
                     if (y2 <= y1) y2 = y1 + 1
-                    val lineType = when {
-                        run.size == 2 -> if (idx == 0) LineType.SURAH_HEADER else LineType.BASMALAH
-                        run.size == 1 && l == 1 && (page == 77 || page == 208) -> LineType.BASMALAH
-                        else -> LineType.SURAH_HEADER
-                    }
+                    val lineType = resolveMissingLineType(page, l, run.size, idx)
                     resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y2, lineType = lineType)
                 }
             } else if (nextL != null) {
@@ -202,11 +220,7 @@ class AyahInfoDatabase(
                     var y2 = nextTop - 10 - (stepsFromNext - 1) * (slotH + 10)
                     var y1 = max(15, y2 - slotH)
                     if (y2 <= y1) y2 = y1 + 1
-                    val lineType = when {
-                        run.size == 2 -> if (idx == 0) LineType.SURAH_HEADER else LineType.BASMALAH
-                        run.size == 1 && l == 1 && (page == 77 || page == 208) -> LineType.BASMALAH
-                        else -> LineType.SURAH_HEADER
-                    }
+                    val lineType = resolveMissingLineType(page, l, run.size, idx)
                     resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y2, lineType = lineType)
                 }
             } else if (prevL != null) {
@@ -217,22 +231,14 @@ class AyahInfoDatabase(
                     val y1 = prevBot + 10 + idx * (slotH + 10)
                     var y2 = min(2035, y1 + slotH)
                     if (y2 <= y1) y2 = y1 + 1
-                    val lineType = when {
-                        run.size == 2 -> if (idx == 0) LineType.SURAH_HEADER else LineType.BASMALAH
-                        run.size == 1 && l == 1 && (page == 77 || page == 208) -> LineType.BASMALAH
-                        else -> LineType.SURAH_HEADER
-                    }
+                    val lineType = resolveMissingLineType(page, l, run.size, idx)
                     resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y2, lineType = lineType)
                 }
             } else {
                 val slotH = avgHeight
                 for ((idx, l) in run.withIndex()) {
                     val y1 = 30 + idx * (slotH + 15)
-                    val lineType = when {
-                        run.size == 2 -> if (idx == 0) LineType.SURAH_HEADER else LineType.BASMALAH
-                        run.size == 1 && l == 1 && (page == 77 || page == 208) -> LineType.BASMALAH
-                        else -> LineType.SURAH_HEADER
-                    }
+                    val lineType = resolveMissingLineType(page, l, run.size, idx)
                     resolved[l] = LineRect(page, l, avgMinX, avgMaxX, y1, y1 + slotH, lineType = lineType)
                 }
             }

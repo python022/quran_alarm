@@ -39,16 +39,23 @@ data class MushafReaderUiState(
     val pageMaxLines: Int = 15,
     val currentBitmap: Bitmap? = null,
     val currentLines: List<LineRect> = emptyList(),
+    val wirdPages: List<Int> = emptyList(),
+    val completedPages: Set<Int> = emptySet(),
     val isLoading: Boolean = true,
     val isWirdCompleted: Boolean = false,
     val isDismissedOrSnoozed: Boolean = false
 ) {
+    val pageIndexInWird: Int get() = wirdPages.indexOf(currentPage)
+    val hasPrevPageInWird: Boolean get() = pageIndexInWird > 0
+    val hasNextPageInWird: Boolean get() = pageIndexInWird >= 0 && pageIndexInWird < wirdPages.size - 1
+    val lastReadableLineOnPage: Int get() = currentLines.filter { it.isReadable }.maxOfOrNull { it.lineNumber } ?: pageMaxLines
+
     /**
      * Law 6 in AGENTS.md (Single Sacred Mission Law):
      * Dismissing the alarm is strictly forbidden until the entire wird is read.
      */
     val isDismissEnabled: Boolean
-        get() = isWirdCompleted || (currentPage == endPage && activeLine >= pageMaxLines)
+        get() = isWirdCompleted
 }
 
 /**
@@ -74,7 +81,8 @@ class AlarmAlertViewModel(
     ) {
         val safeStartPage = rawStartPage.coerceIn(1, 604)
         val safePageCount = rawPageCount.coerceAtLeast(1)
-        val safeEndPage = Math.floorMod(safeStartPage + safePageCount - 2, 604) + 1
+        val computedWirdPages = (0 until safePageCount).map { Math.floorMod(safeStartPage - 1 + it, 604) + 1 }
+        val safeEndPage = computedWirdPages.last()
 
         val initialMaxLines = lineBoundsRepository.getPageLineCount(safeStartPage)
 
@@ -86,7 +94,10 @@ class AlarmAlertViewModel(
                 endPage = safeEndPage,
                 pageCount = safePageCount,
                 currentPage = safeStartPage,
-                pageMaxLines = initialMaxLines
+                pageMaxLines = initialMaxLines,
+                wirdPages = computedWirdPages,
+                completedPages = emptySet(),
+                isWirdCompleted = false
             )
         }
 
@@ -126,6 +137,7 @@ class AlarmAlertViewModel(
                     activeLine = lineToSet
                 )
             }
+            checkCompletion()
         }
     }
 
@@ -150,34 +162,45 @@ class AlarmAlertViewModel(
         if (nextReadable != null) {
             _uiState.update { it.copy(activeLine = nextReadable.lineNumber) }
             checkCompletion()
-        } else if (state.currentPage != state.endPage) {
-            // Advance to next page in wird
-            val nextPage = (state.currentPage % 604) + 1
+        } else if (state.hasNextPageInWird) {
+            // Mark current page as completed and advance to next page in wird
+            val nextPage = state.wirdPages[state.pageIndexInWird + 1]
+            _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage) }
             loadPage(nextPage)
         } else {
             // Reached last readable line of final wird page
-            _uiState.update { it.copy(isWirdCompleted = true) }
+            val priorPages = state.wirdPages.takeWhile { it != state.endPage }
+            val allPriorCompleted = priorPages.all { it in state.completedPages }
+            if (allPriorCompleted || state.wirdPages.size <= 1) {
+                _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true) }
+            }
         }
     }
 
     fun goToPreviousPage() {
         val state = _uiState.value
-        if (state.currentPage > 1) {
-            loadPage(state.currentPage - 1)
+        if (state.hasPrevPageInWird) {
+            val prevPage = state.wirdPages[state.pageIndexInWird - 1]
+            loadPage(prevPage)
         }
     }
 
     fun goToNextPage() {
         val state = _uiState.value
-        if (state.currentPage < 604) {
-            loadPage(state.currentPage + 1)
+        if (state.hasNextPageInWird) {
+            val nextPage = state.wirdPages[state.pageIndexInWird + 1]
+            loadPage(nextPage)
         }
     }
 
     private fun checkCompletion() {
         val state = _uiState.value
-        if (state.currentPage == state.endPage && state.activeLine >= state.pageMaxLines) {
-            _uiState.update { it.copy(isWirdCompleted = true) }
+        val lastReadable = state.currentLines.filter { it.isReadable }.maxOfOrNull { it.lineNumber } ?: state.pageMaxLines
+        val priorPages = state.wirdPages.takeWhile { it != state.endPage }
+        val allPriorCompleted = priorPages.all { it in state.completedPages }
+
+        if (state.currentPage == state.endPage && state.activeLine >= lastReadable && (allPriorCompleted || state.wirdPages.size <= 1)) {
+            _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true) }
         }
     }
 
