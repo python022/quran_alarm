@@ -58,6 +58,7 @@ data class MushafReaderUiState(
     val isLoading: Boolean = true,
     val isWirdCompleted: Boolean = false,
     val isDismissedOrSnoozed: Boolean = false,
+    val isSnoozeEnabled: Boolean = true,
     val stage: AlarmAlertStage = AlarmAlertStage.RINGING
 ) {
     val pageIndexInWird: Int get() = wirdPages.indexOf(currentPage)
@@ -92,7 +93,8 @@ class AlarmAlertViewModel(
         alarmId: Int,
         alarmLabel: String,
         rawStartPage: Int,
-        rawPageCount: Int
+        rawPageCount: Int,
+        isSnoozeEnabled: Boolean = true
     ) {
         val safeStartPage = rawStartPage.coerceIn(1, 604)
         val safePageCount = rawPageCount.coerceAtLeast(1)
@@ -113,6 +115,7 @@ class AlarmAlertViewModel(
                 wirdPages = computedWirdPages,
                 completedPages = emptySet(),
                 isWirdCompleted = false,
+                isSnoozeEnabled = isSnoozeEnabled,
                 stage = AlarmAlertStage.RINGING
             )
         }
@@ -255,7 +258,8 @@ class AlarmAlertViewModel(
                 val snoozeTime = System.currentTimeMillis() + (minutes * 60_000L)
                 val cal = Calendar.getInstance().apply { timeInMillis = snoozeTime }
 
-                val snoozeItem = AlarmItem(
+                val currentAlarm = alarmRepository.getAlarmById(state.alarmId)
+                val baseAlarm = currentAlarm ?: AlarmItem(
                     id = state.alarmId,
                     hour = cal.get(Calendar.HOUR_OF_DAY),
                     minute = cal.get(Calendar.MINUTE),
@@ -265,7 +269,14 @@ class AlarmAlertViewModel(
                     label = state.alarmLabel,
                     targetPage = state.startPage,
                     startPage = state.startPage,
-                    pageCount = state.pageCount,
+                    pageCount = state.pageCount
+                )
+
+                val snoozeItem = baseAlarm.copy(
+                    hour = cal.get(Calendar.HOUR_OF_DAY),
+                    minute = cal.get(Calendar.MINUTE),
+                    repeatDays = emptySet(),
+                    isEnabled = true,
                     explicitTriggerMillis = snoozeTime
                 )
                 alarmScheduler.schedule(snoozeItem)

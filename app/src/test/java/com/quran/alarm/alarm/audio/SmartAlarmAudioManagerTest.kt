@@ -63,7 +63,27 @@ class SmartAlarmAudioManagerTest {
     }
 
     @Test
+    fun resolveSoundUri_networkUri_isRejectedByZeroNetworkLaw() {
+        // Enforces AGENTS.md Law 2 (Zero-Network Law): network URIs must be strictly rejected
+        assertNull(audioManager.resolveSoundUri("http://example.com/audio.mp3"))
+        assertNull(audioManager.resolveSoundUri("https://example.com/audio.mp3"))
+        assertNull(audioManager.resolveSoundUri("ftp://example.com/audio.mp3"))
+        assertNull(AlarmSoundPresets.resolveUri(context, "http://example.com/audio.mp3"))
+        assertNull(AlarmSoundPresets.resolveUri(context, "https://example.com/audio.mp3"))
+    }
+
+    @Test
+    fun alarmSoundPresets_resolveUri_defaultResolvesToSystemAlarmOrRingtone() {
+        val defaultResolved = AlarmSoundPresets.resolveUri(context, null)
+        assertNotNull("Default URI must resolve to system alarm or ringtone", defaultResolved)
+
+        val defaultTagResolved = AlarmSoundPresets.resolveUri(context, AlarmSoundPresets.URI_DEFAULT)
+        assertNotNull("URI_DEFAULT must resolve to system alarm or ringtone", defaultTagResolved)
+    }
+
+    @Test
     fun initialPlaybackState_isIdle() {
         assertEquals(AudioPlaybackState.IDLE, audioManager.playbackState.value)
     }
 }
+

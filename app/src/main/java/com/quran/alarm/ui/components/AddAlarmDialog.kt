@@ -131,15 +131,7 @@ fun AddAlarmDialog(
     fun playPreview(uriStr: String?) {
         stopPreview()
         try {
-            val uri: Uri? = when (uriStr) {
-                null, "", AlarmSoundPresets.URI_DEFAULT -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                AlarmSoundPresets.URI_ADHAN_FAJR -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.adhan_fajr}")
-                AlarmSoundPresets.URI_EID_TAKBEER -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.eid_takbeer}")
-                AlarmSoundPresets.URI_CALM_TONE -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.calm_tone}")
-                AlarmSoundPresets.URI_QURAN_ALERT -> Uri.parse("android.resource://${context.packageName}/${com.quran.alarm.R.raw.quran_alert}")
-                else -> Uri.parse(uriStr)
-            }
+            val uri: Uri? = AlarmSoundPresets.resolveUri(context, uriStr)
 
             if (uri != null) {
                 val mp = MediaPlayer().apply {

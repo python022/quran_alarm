@@ -72,27 +72,7 @@ class SmartAlarmAudioManager(
         if (soundUriString.isNullOrBlank() || soundUriString == AlarmSoundPresets.URI_DEFAULT) {
             return null
         }
-        return when (soundUriString) {
-            AlarmSoundPresets.URI_ADHAN_FAJR -> {
-                Uri.parse("android.resource://${context.packageName}/${R.raw.adhan_fajr}")
-            }
-            AlarmSoundPresets.URI_EID_TAKBEER -> {
-                Uri.parse("android.resource://${context.packageName}/${R.raw.eid_takbeer}")
-            }
-            AlarmSoundPresets.URI_CALM_TONE -> {
-                Uri.parse("android.resource://${context.packageName}/${R.raw.calm_tone}")
-            }
-            AlarmSoundPresets.URI_QURAN_ALERT -> {
-                Uri.parse("android.resource://${context.packageName}/${R.raw.quran_alert}")
-            }
-            else -> {
-                try {
-                    Uri.parse(soundUriString)
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        }
+        return AlarmSoundPresets.resolveUri(context, soundUriString)
     }
 
     /**
@@ -128,6 +108,17 @@ class SmartAlarmAudioManager(
                 isLooping = true
                 setVolume(1.0f, 1.0f)
                 setOnErrorListener { _, _, _ ->
+                    // If custom tone playback encounters an error, fallback to default alarm first
+                    if (customToneUri != null) {
+                        try {
+                            val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                            if (defaultUri != null && defaultUri != customToneUri) {
+                                startAlarm(customToneUri = null, volumeLevel = targetVolumePercent)
+                                return@setOnErrorListener true
+                            }
+                        } catch (_: Exception) {}
+                    }
                     fallbackToToneGenerator()
                     true
                 }
@@ -135,6 +126,16 @@ class SmartAlarmAudioManager(
                     try {
                         mp.start()
                     } catch (e: Exception) {
+                        if (customToneUri != null) {
+                            try {
+                                val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                                if (defaultUri != null && defaultUri != customToneUri) {
+                                    startAlarm(customToneUri = null, volumeLevel = targetVolumePercent)
+                                    return@setOnPreparedListener
+                                }
+                            } catch (_: Exception) {}
+                        }
                         fallbackToToneGenerator()
                     }
                 }

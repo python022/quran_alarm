@@ -1,5 +1,10 @@
 package com.quran.alarm.alarm.domain.model
 
+import android.content.Context
+import android.media.RingtoneManager
+import android.net.Uri
+import com.quran.alarm.R
+
 /**
  * Representation of an alarm sound option (built-in preset or local device sound).
  */
@@ -36,4 +41,39 @@ object AlarmSoundPresets {
         val preset = PRESET_OPTIONS.firstOrNull { it.uriString == uriString }
         return preset?.title ?: defaultTitle
     }
+
+    /**
+     * Resolves a sound URI string into a playable [Uri].
+     *
+     * Stricly enforces AGENTS.md Law 2 (Zero-Network Law):
+     * Rejects network URIs (http, https, ftp) to prevent unauthorized network attempts.
+     */
+    fun resolveUri(context: Context, uriString: String?): Uri? {
+        if (uriString.isNullOrBlank() || uriString == URI_DEFAULT) {
+            return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        }
+
+        return when (uriString) {
+            URI_ADHAN_FAJR -> Uri.parse("android.resource://${context.packageName}/${R.raw.adhan_fajr}")
+            URI_EID_TAKBEER -> Uri.parse("android.resource://${context.packageName}/${R.raw.eid_takbeer}")
+            URI_CALM_TONE -> Uri.parse("android.resource://${context.packageName}/${R.raw.calm_tone}")
+            URI_QURAN_ALERT -> Uri.parse("android.resource://${context.packageName}/${R.raw.quran_alert}")
+            else -> {
+                try {
+                    val parsed = Uri.parse(uriString)
+                    val scheme = parsed.scheme?.lowercase()
+                    if (scheme == "http" || scheme == "https" || scheme == "ftp") {
+                        // Reject network URIs to comply with AGENTS.md Law 2 (Zero-Network)
+                        null
+                    } else {
+                        parsed
+                    }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
 }
+

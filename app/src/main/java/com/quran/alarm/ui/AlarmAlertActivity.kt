@@ -120,9 +120,10 @@ class AlarmAlertActivity : ComponentActivity() {
         val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1).coerceIn(1, 604)
         startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
         pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
+        val isSnoozeEnabled = intent.getBooleanExtra("com.quran.alarm.EXTRA_IS_SNOOZE_ENABLED", true)
 
         if (savedInstanceState == null) {
-            viewModel.initialize(alarmId, alarmLabel, startPage, pageCount)
+            viewModel.initialize(alarmId, alarmLabel, startPage, pageCount, isSnoozeEnabled)
         }
 
         setContent {
@@ -185,6 +186,9 @@ class AlarmAlertActivity : ComponentActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val params = window.attributes
+        params.screenBrightness = 0.85f
+        window.attributes = params
     }
 
     private fun setupImmersiveStickyMode() {
@@ -553,23 +557,24 @@ fun AlarmAlertScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Snooze option
-                Button(
-                    onClick = onSnooze,
-                    modifier = Modifier
-                        .fillMaxWidth(0.65f)
-                        .height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                ) {
-                    Text(
-                        text = "غفوة (5 دقائق)",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFFE2E8F0)
-                    )
+                // Snooze option (if enabled)
+                if (uiState.isSnoozeEnabled) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onSnooze,
+                        modifier = Modifier
+                            .fillMaxWidth(0.65f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                    ) {
+                        Text(
+                            text = "غفوة (5 دقائق)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFE2E8F0)
+                        )
+                    }
                 }
             }
         }

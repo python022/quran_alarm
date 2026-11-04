@@ -84,6 +84,9 @@ class AlarmForegroundService : Service() {
                 audioManager.stopAlarm()
                 vibratorManager.stopVibration()
 
+                // Refresh and extend wake lock for uninterrupted reading session (45 minutes)
+                acquireReadingWakeLock()
+
                 val alarmId = intent.getIntExtra(EXTRA_ALARM_ID, 0)
                 val label = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
                 val startPage = intent.getIntExtra(EXTRA_START_PAGE, 1)
@@ -269,6 +272,7 @@ class AlarmForegroundService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
             .setContentIntent(fullScreenPendingIntent)
             .build()
     }
@@ -288,6 +292,17 @@ class AlarmForegroundService : Service() {
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun acquireReadingWakeLock() {
+        releaseWakeLock()
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "QuranAlarm:ReadingSessionWakeLock"
+        ).apply {
+            acquire(45 * 60 * 1000L) // 45 minutes reading session wakelock
         }
     }
 

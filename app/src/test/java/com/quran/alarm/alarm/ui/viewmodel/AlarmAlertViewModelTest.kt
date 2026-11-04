@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -290,6 +291,66 @@ class AlarmAlertViewModelTest {
 
         assertEquals("Must transition to MUSHAF_READING stage", AlarmAlertStage.MUSHAF_READING, viewModel.uiState.value.stage)
         assertFalse("Dismiss remains locked at start of recitation", viewModel.uiState.value.isDismissEnabled)
+    }
+
+    @Test
+    fun testSnoozePreservesConfiguredSoundTitleVolumeAndVibrationFromRepository() = runTest {
+        // Save alarm with customized sound and volume in repository
+        val configuredAlarm = AlarmItem(
+            id = 77,
+            hour = 5,
+            minute = 15,
+            label = "صلاة الفجر المخصصة",
+            startPage = 10,
+            pageCount = 3,
+            volumeLevel = 75,
+            soundUri = "builtin://adhan_fajr",
+            soundTitle = "أذان الفجر",
+            isVibrationEnabled = true,
+            isSequential = true
+        )
+        fakeAlarmRepo.saveAlarm(configuredAlarm)
+
+        viewModel.initialize(
+            alarmId = 77,
+            alarmLabel = "صلاة الفجر المخصصة",
+            rawStartPage = 10,
+            rawPageCount = 3,
+            isSnoozeEnabled = true
+        )
+        advanceUntilIdle()
+
+        var snoozeInvoked = false
+        viewModel.snooze(minutes = 5) {
+            snoozeInvoked = true
+        }
+        advanceUntilIdle()
+
+        assertTrue("Snooze callback must be invoked", snoozeInvoked)
+        assertTrue("State must mark isDismissedOrSnoozed as true", viewModel.uiState.value.isDismissedOrSnoozed)
+
+        val scheduledItem = fakeAlarmScheduler.scheduled.lastOrNull()
+        assertNotNull("Snooze item must be scheduled in scheduler", scheduledItem)
+        assertEquals("Snooze alarm must preserve custom soundUri", "builtin://adhan_fajr", scheduledItem!!.soundUri)
+        assertEquals("Snooze alarm must preserve soundTitle", "أذان الفجر", scheduledItem.soundTitle)
+        assertEquals("Snooze alarm must preserve volumeLevel", 75, scheduledItem.volumeLevel)
+        assertTrue("Snooze alarm must preserve isVibrationEnabled", scheduledItem.isVibrationEnabled)
+        assertTrue("Snooze alarm must be a one-shot trigger", scheduledItem.repeatDays.isEmpty())
+        assertTrue("Snooze alarm must be enabled", scheduledItem.isEnabled)
+    }
+
+    @Test
+    fun testInitializePropagatesIsSnoozeEnabled() = runTest {
+        viewModel.initialize(
+            alarmId = 88,
+            alarmLabel = "Wird Without Snooze",
+            rawStartPage = 20,
+            rawPageCount = 2,
+            isSnoozeEnabled = false
+        )
+        advanceUntilIdle()
+
+        assertFalse("isSnoozeEnabled must be false when configured as false", viewModel.uiState.value.isSnoozeEnabled)
     }
 
     @Test
