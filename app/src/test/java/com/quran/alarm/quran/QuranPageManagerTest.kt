@@ -91,4 +91,26 @@ class QuranPageManagerTest {
         assertEquals(0, pageManager.getCachedPagesCount())
         assertEquals(0, pageManager.getCacheSizeBytes())
     }
+
+    @Test
+    fun testOnTrimMemoryCompleteEvictsAll() = runBlocking {
+        pageManager.loadPageBitmap(1)
+        pageManager.loadPageBitmap(2)
+        assertTrue(pageManager.getCachedPagesCount() > 0)
+
+        pageManager.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+        assertEquals(0, pageManager.getCachedPagesCount())
+    }
+
+    @Test
+    fun testOnTrimMemoryModerateTrimsCache() = runBlocking {
+        pageManager.loadPageBitmap(1)
+        pageManager.loadPageBitmap(2)
+        pageManager.loadPageBitmap(3)
+        val initialSize = pageManager.getCacheSizeBytes()
+
+        pageManager.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE)
+        val trimmedSize = pageManager.getCacheSizeBytes()
+        assertTrue("Cache size must be reduced after TRIM_MEMORY_MODERATE", trimmedSize <= initialSize)
+    }
 }

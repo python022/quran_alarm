@@ -24,14 +24,31 @@ class QuranAssetsIntegrityTest {
             assertTrue("Page $page file ($pageFileName) must exist", pageFile.exists())
             assertTrue("Page $page file must have positive byte size", pageFile.length() > 1024)
 
-            // Verify RIFF and WEBP header magic bytes
+            // Verify RIFF, WEBP, and exact 1260x2038 dimensions
             RandomAccessFile(pageFile, "r").use { raf ->
-                val header = ByteArray(12)
+                val header = ByteArray(30)
                 raf.readFully(header)
                 val riff = String(header, 0, 4)
                 val webp = String(header, 8, 4)
                 assertEquals("Page $page must have RIFF header", "RIFF", riff)
                 assertEquals("Page $page must have WEBP signature", "WEBP", webp)
+
+                val format = String(header, 12, 4)
+                val (width, height) = when (format) {
+                    "VP8 " -> {
+                        val w = ((header[27].toInt() and 0x3F) shl 8) or (header[26].toInt() and 0xFF)
+                        val h = ((header[29].toInt() and 0x3F) shl 8) or (header[28].toInt() and 0xFF)
+                        Pair(w, h)
+                    }
+                    "VP8X" -> {
+                        val w = 1 + ((header[24].toInt() and 0xFF) or ((header[25].toInt() and 0xFF) shl 8) or ((header[26].toInt() and 0xFF) shl 16))
+                        val h = 1 + ((header[27].toInt() and 0xFF) or ((header[28].toInt() and 0xFF) shl 8) or ((header[29].toInt() and 0xFF) shl 16))
+                        Pair(w, h)
+                    }
+                    else -> Pair(0, 0)
+                }
+                assertEquals("Page $page width must be 1260", 1260, width)
+                assertEquals("Page $page height must be 2038", 2038, height)
             }
         }
     }

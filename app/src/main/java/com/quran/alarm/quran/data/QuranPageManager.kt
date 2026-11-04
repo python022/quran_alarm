@@ -98,6 +98,35 @@ class QuranPageManager(
     }
 
     /**
+     * Responds to system low-memory warnings by trimming or clearing cached bitmaps.
+     */
+    fun onTrimMemory(level: Int) {
+        synchronized(cache) {
+            when {
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                    cache.evictAll()
+                }
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE ||
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
+                    cache.trimToSize(maxCacheMemoryBytes / 2)
+                }
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
+                    cache.trimToSize(maxCacheMemoryBytes / 2)
+                }
+            }
+        }
+    }
+
+    /**
+     * Trims the cache down to the specified size in bytes.
+     */
+    fun trimToSize(maxBytes: Int) {
+        synchronized(cache) {
+            cache.trimToSize(maxBytes)
+        }
+    }
+
+    /**
      * Clears all cached bitmaps.
      */
     fun clearCache() {

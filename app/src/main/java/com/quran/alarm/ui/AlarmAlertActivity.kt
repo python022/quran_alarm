@@ -10,6 +10,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -44,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -56,6 +58,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModel
+import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModelFactory
+import com.quran.alarm.alarm.ui.viewmodel.MushafReaderUiState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -95,10 +100,11 @@ class AlarmAlertActivity : ComponentActivity() {
     private var alarmLabel: String = "ورد القرآن الكريم"
     private var startPage: Int = 1
     private var pageCount: Int = 5
-    private var isDismissedOrSnoozed = false
 
     private lateinit var pageManager: QuranPageManager
-    private lateinit var lineBoundsRepo: AyahInfoLineBoundsRepositoryImpl
+    private val viewModel: AlarmAlertViewModel by viewModels {
+        AlarmAlertViewModelFactory(this, pageManager)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,16 +113,16 @@ class AlarmAlertActivity : ComponentActivity() {
         setupAntiBypassBackBlocker()
 
         pageManager = QuranPageManager(this)
-        val db = AyahInfoDatabase.getInstance(this)
-        lineBoundsRepo = AyahInfoLineBoundsRepositoryImpl(db)
 
         alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
         alarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
-        val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1)
-        startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage)
-        pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5)
+        val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1).coerceIn(1, 604)
+        startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
+        pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
 
-        val endPage = ((startPage + pageCount - 2) % 604) + 1
+        if (savedInstanceState == null) {
+            viewModel.initialize(alarmId, alarmLabel, startPage, pageCount)
+        }
 
         setContent {
             MaterialTheme {
@@ -124,18 +130,33 @@ class AlarmAlertActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color(0xFF0F172A)
                 ) {
+                    val uiState by viewModel.uiState.collectAsState()
                     AlarmAlertScreen(
-                        label = alarmLabel,
-                        startPage = startPage,
-                        endPage = endPage,
-                        pageCount = pageCount,
-                        pageManager = pageManager,
-                        lineBoundsRepo = lineBoundsRepo,
-                        onSnooze = { snoozeAlarm(minutes = 5) },
-                        onDismissAlarm = { completeAndAdvanceWird() }
+                        uiState = uiState,
+                        onPrevPage = { viewModel.goToPreviousPage() },
+                        onNextPage = { viewModel.goToNextPage() },
+                        onLineClicked = { viewModel.onLineClicked(it) },
+                        onNextStep = { viewModel.advanceToNextLineOrPage() },
+                        onSnooze = {
+                            viewModel.snooze(minutes = 5) {
+                                stopAlarmServiceAndFinish()
+                            }
+                        },
+                        onDismissAlarm = {
+                            viewModel.completeWird {
+                                stopAlarmServiceAndFinish()
+                            }
+                        }
                     )
                 }
             }
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::pageManager.isInitialized) {
+            pageManager.onTrimMemory(level)
         }
     }
 
@@ -243,49 +264,10 @@ class AlarmAlertActivity : ComponentActivity() {
         }
     }
 
-    private fun snoozeAlarm(minutes: Int = 5) {
+    private var isDismissedOrSnoozed = false
+
+    private fun stopAlarmServiceAndFinish() {
         isDismissedOrSnoozed = true
-        val scheduler = AlarmSchedulerImpl(this)
-        val snoozeTime = System.currentTimeMillis() + (minutes * 60_000L)
-        val cal = Calendar.getInstance().apply { timeInMillis = snoozeTime }
-
-        val snoozeItem = AlarmItem(
-            id = alarmId,
-            hour = cal.get(Calendar.HOUR_OF_DAY),
-            minute = cal.get(Calendar.MINUTE),
-            repeatDays = emptySet(),
-            isEnabled = true,
-            isVibrationEnabled = true,
-            label = alarmLabel,
-            targetPage = startPage,
-            startPage = startPage,
-            pageCount = pageCount,
-            explicitTriggerMillis = snoozeTime
-        )
-        scheduler.schedule(snoozeItem)
-
-        val stopIntent = Intent(this, AlarmForegroundService::class.java).apply {
-            action = AlarmForegroundService.ACTION_STOP_ALARM
-        }
-        startService(stopIntent)
-        finish()
-    }
-
-    private fun completeAndAdvanceWird() {
-        isDismissedOrSnoozed = true
-
-        val repository = AlarmRepositoryImpl(this)
-        val scheduler = AlarmSchedulerImpl(this)
-        val currentAlarm = repository.getAlarmById(alarmId)
-        if (currentAlarm != null) {
-            val willRepeat = currentAlarm.repeatDays.isNotEmpty()
-            val advancedAlarm = currentAlarm.advanceToNextWird().copy(isEnabled = willRepeat)
-            repository.saveAlarm(advancedAlarm)
-            if (willRepeat) {
-                scheduler.schedule(advancedAlarm)
-            }
-        }
-
         val stopIntent = Intent(this, AlarmForegroundService::class.java).apply {
             action = AlarmForegroundService.ACTION_STOP_ALARM
         }
@@ -296,31 +278,16 @@ class AlarmAlertActivity : ComponentActivity() {
 
 @Composable
 fun AlarmAlertScreen(
-    label: String,
-    startPage: Int,
-    endPage: Int,
-    pageCount: Int,
-    pageManager: QuranPageManager? = null,
-    lineBoundsRepo: AyahInfoLineBoundsRepositoryImpl? = null,
+    uiState: MushafReaderUiState,
+    onPrevPage: () -> Unit,
+    onNextPage: () -> Unit,
+    onLineClicked: (Int) -> Unit,
+    onNextStep: () -> Unit,
     onSnooze: () -> Unit,
     onDismissAlarm: () -> Unit
 ) {
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var currentPage by remember { mutableIntStateOf(startPage) }
-    var activeLine by remember { mutableIntStateOf(1) }
-    var showMushafReader by remember { mutableStateOf(pageManager != null) }
-
-    var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var currentLines by remember { mutableStateOf<List<LineRect>>(emptyList()) }
-
-    // Load page bitmap and lines when currentPage changes
-    LaunchedEffect(currentPage, pageManager, lineBoundsRepo) {
-        if (pageManager != null && lineBoundsRepo != null) {
-            currentBitmap = pageManager.loadPageBitmap(currentPage)
-            currentLines = lineBoundsRepo.getLinesForPage(currentPage)
-            pageManager.preloadPages(currentPage, radius = 1)
-        }
-    }
+    var showMushafReader by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -340,18 +307,7 @@ fun AlarmAlertScreen(
         label = "pulseScale"
     )
 
-    val pageMaxLines = remember(currentPage, lineBoundsRepo) {
-        lineBoundsRepo?.getPageLineCount(currentPage) ?: if (currentPage in 1..2) 8 else 15
-    }
-
-    val wirdPages = remember(startPage, pageCount) {
-        (0 until pageCount).map { ((startPage - 1 + it) % 604) + 1 }
-    }
-    val pageIndexInWird = wirdPages.indexOf(currentPage)
-    val hasNextPageInWird = pageIndexInWird >= 0 && pageIndexInWird < wirdPages.size - 1
-    val nextPageInWird = if (hasNextPageInWird) wirdPages[pageIndexInWird + 1] else currentPage
-
-    if (showMushafReader && pageManager != null) {
+    if (showMushafReader) {
         // Fullscreen Madinah Mushaf Reader with authentic paper illumination
         Column(
             modifier = Modifier
@@ -372,13 +328,8 @@ fun AlarmAlertScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = {
-                            if (currentPage > 1) {
-                                currentPage--
-                                activeLine = 1
-                            }
-                        },
-                        enabled = currentPage > 1,
+                        onClick = onPrevPage,
+                        enabled = uiState.hasPrevPageInWird,
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
@@ -387,26 +338,21 @@ fun AlarmAlertScreen(
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "صفحة $currentPage من 604",
+                            text = "صفحة ${uiState.currentPage} من 604",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = Color(0xFF38BDF8)
                         )
                         Text(
-                            text = "السطر $activeLine من $pageMaxLines",
+                            text = "السطر ${uiState.activeLine} من ${uiState.pageMaxLines}",
                             fontSize = 12.sp,
                             color = Color(0xFF10B981)
                         )
                     }
 
                     OutlinedButton(
-                        onClick = {
-                            if (currentPage < 604) {
-                                currentPage++
-                                activeLine = 1
-                            }
-                        },
-                        enabled = currentPage < 604,
+                        onClick = onNextPage,
+                        enabled = uiState.hasNextPageInWird,
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
@@ -422,15 +368,11 @@ fun AlarmAlertScreen(
                     .fillMaxWidth()
             ) {
                 QuranPageView(
-                    pageNumber = currentPage,
-                    pageBitmap = currentBitmap,
-                    lines = currentLines,
-                    activeLine = activeLine,
-                    onLineClicked = { clickedLine ->
-                        if (clickedLine in 1..pageMaxLines) {
-                            activeLine = clickedLine
-                        }
-                    },
+                    pageNumber = uiState.currentPage,
+                    pageBitmap = uiState.currentBitmap,
+                    lines = uiState.currentLines,
+                    activeLine = uiState.activeLine,
+                    onLineClicked = onLineClicked,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -448,35 +390,38 @@ fun AlarmAlertScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = {
-                            if (activeLine < pageMaxLines) {
-                                activeLine++
-                            } else if (hasNextPageInWird) {
-                                currentPage = nextPageInWird
-                                activeLine = 1
-                            }
-                        },
-                        enabled = activeLine < pageMaxLines || hasNextPageInWird,
+                        onClick = onNextStep,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = if (activeLine < pageMaxLines) "السطر التالي" else if (hasNextPageInWird) "الصفحة التالية" else "اكتمل الورد",
+                            text = if (uiState.activeLine < uiState.lastReadableLineOnPage) {
+                                "السطر التالي"
+                            } else if (uiState.hasNextPageInWird) {
+                                "الصفحة التالية"
+                            } else {
+                                "إتمام الورد"
+                            },
                             fontSize = 13.sp,
                             color = Color(0xFF38BDF8)
                         )
                     }
 
+                    // Law 6 in AGENTS.md: Dismiss button strictly disabled until wird is completed
                     Button(
                         onClick = onDismissAlarm,
+                        enabled = uiState.isDismissEnabled,
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF10B981),
+                            disabledContainerColor = Color(0xFF334155)
+                        ),
                         modifier = Modifier.weight(1.2f)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = if (uiState.isDismissEnabled) Color.White else Color(0xFF94A3B8),
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -484,7 +429,7 @@ fun AlarmAlertScreen(
                             text = "إتمام الورد",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color.White
+                            color = if (uiState.isDismissEnabled) Color.White else Color(0xFF94A3B8)
                         )
                     }
                 }
@@ -551,7 +496,7 @@ fun AlarmAlertScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = label,
+                        text = uiState.alarmLabel,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -559,7 +504,7 @@ fun AlarmAlertScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "الورد اليومي: من صفحة $startPage إلى صفحة $endPage",
+                        text = "الورد اليومي: من صفحة ${uiState.startPage} إلى صفحة ${uiState.endPage}",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF38BDF8),
@@ -567,7 +512,7 @@ fun AlarmAlertScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "($pageCount صفحات متتالية)",
+                        text = "(${uiState.pageCount} صفحات متتالية)",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF10B981)
@@ -608,17 +553,21 @@ fun AlarmAlertScreen(
 
                 Button(
                     onClick = onDismissAlarm,
+                    enabled = uiState.isDismissEnabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFEF4444),
+                        disabledContainerColor = Color(0xFF334155)
+                    )
                 ) {
                     Text(
                         text = "إتمام الورد وإيقاف المنبه",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = if (uiState.isDismissEnabled) Color.White else Color(0xFF94A3B8)
                     )
                 }
             }

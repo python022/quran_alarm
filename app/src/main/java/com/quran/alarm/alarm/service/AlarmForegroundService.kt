@@ -185,7 +185,9 @@ class AlarmForegroundService : Service() {
     }
 
     fun buildNotification(alarmId: Int, label: String, startPage: Int, pageCount: Int): Notification {
-        val endPage = ((startPage + pageCount - 2) % 604) + 1
+        val safeStart = startPage.coerceIn(1, 604)
+        val safeCount = pageCount.coerceAtLeast(1)
+        val endPage = Math.floorMod(safeStart + safeCount - 2, 604) + 1
         val fullScreenIntent = Intent(this, AlarmAlertActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
