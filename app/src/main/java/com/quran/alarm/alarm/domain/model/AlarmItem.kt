@@ -77,7 +77,11 @@ data class AlarmItem(
      * Calculates the concluding page of today's reading session.
      */
     val endPage: Int
-        get() = ((startPage + pageCount - 2) % 604) + 1
+        get() {
+            val safeStart = startPage.coerceIn(1, 604)
+            val safeCount = pageCount.coerceAtLeast(1)
+            return Math.floorMod(safeStart + safeCount - 2, 604) + 1
+        }
 
     /**
      * Automatically advances the start page to the next daily portion upon session completion.
@@ -87,7 +91,9 @@ data class AlarmItem(
         if (!isSequential) {
             return this
         }
-        val nextStart = ((startPage + pageCount - 1) % 604) + 1
+        val safeStart = startPage.coerceIn(1, 604)
+        val safeCount = pageCount.coerceAtLeast(1)
+        val nextStart = Math.floorMod(safeStart + safeCount - 1, 604) + 1
         return copy(
             startPage = nextStart,
             targetPage = nextStart

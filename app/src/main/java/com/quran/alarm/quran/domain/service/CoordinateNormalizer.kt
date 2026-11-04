@@ -91,27 +91,34 @@ class CoordinateNormalizer(
 
     /**
      * Finds the matching line for screen point (x, y).
-     * If strictly within a line, returns that line number.
-     * If between lines, snaps to the closest line within [maxSnapDistancePx].
+     * If strictly within a line, returns that line number. If multiple lines overlap at (x, y)
+     * due to absorption padding, resolves by choosing the line whose vertical center is closest to y.
+     * If between lines, snaps to the closest line within [maxSnapDistancePx] scaled by [density].
      */
     fun findLineAt(
         x: Float,
         y: Float,
         lines: List<NormalizedLineRect>,
-        maxSnapDistancePx: Float = 32f
+        maxSnapDistancePx: Float = 32f,
+        density: Float = 1.0f
     ): Int? {
         if (lines.isEmpty()) return null
 
-        // 1. Direct hit
-        val direct = lines.firstOrNull { it.contains(x, y) }
-        if (direct != null) return direct.lineNumber
+        // 1. Direct hit: pick closest vertical center to prevent masking adjacent lines
+        val directHits = lines.filter { it.contains(x, y) }
+        if (directHits.isNotEmpty()) {
+            return directHits.minByOrNull { kotlin.math.abs(it.centerY - y) }?.lineNumber
+        }
 
-        // 2. Proximity snap within vertical threshold
-        val horizontalMatch = lines.filter { x >= it.left - 20f && x <= it.right + 20f }
+        // 2. Proximity snap within vertical and horizontal threshold scaled by density
+        val horizontalMargin = 20f * density
+        val effectiveSnapDistance = maxSnapDistancePx * density
+
+        val horizontalMatch = lines.filter { x >= it.left - horizontalMargin && x <= it.right + horizontalMargin }
         val candidatePool = if (horizontalMatch.isNotEmpty()) horizontalMatch else lines
 
         val closest = candidatePool.minByOrNull { it.verticalDistanceTo(y) }
-        return if (closest != null && closest.verticalDistanceTo(y) <= maxSnapDistancePx) {
+        return if (closest != null && closest.verticalDistanceTo(y) <= effectiveSnapDistance) {
             closest.lineNumber
         } else {
             null

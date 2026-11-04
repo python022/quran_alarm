@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
@@ -24,7 +25,7 @@ import com.quran.alarm.quran.domain.service.CoordinateNormalizer
 
 /**
  * Authentic Madinah Mushaf page view rendered via Canvas in Jetpack Compose.
- * Displays the 15-line page texture pixel-for-pixel and highlights the currently active line
+ * Displays the page texture pixel-for-pixel and highlights the currently active line
  * with soft translucent green.
  */
 @Composable
@@ -38,7 +39,18 @@ fun QuranPageView(
     modifier: Modifier = Modifier
 ) {
     val normalizer = remember { CoordinateNormalizer() }
+    val density = LocalDensity.current.density
     val pageColor = Color(0xFFFFFDF5) // Authentic Madinah mushaf paper tint
+
+    // Pre-wrap ImageBitmap to eliminate frame-by-frame GC allocations during pulse animations
+    val imageBitmap = remember(pageBitmap) {
+        if (pageBitmap != null && !pageBitmap.isRecycled) pageBitmap.asImageBitmap() else null
+    }
+
+    // Pre-filter target line to ensure decorative surah banners are never highlighted
+    val targetLine = remember(lines, activeLine) {
+        lines.firstOrNull { it.lineNumber == activeLine && it.isReadable }
+    }
 
     Box(
         modifier = modifier
@@ -51,13 +63,21 @@ fun QuranPageView(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(lines, onLineClicked) {
+                .pointerInput(lines, onLineClicked, density) {
                     if (onLineClicked != null) {
                         detectTapGestures { tapOffset ->
                             val normalized = normalizer.normalizeAll(lines, size.width.toFloat(), size.height.toFloat())
-                            val clickedLine = normalizer.findLineAt(tapOffset.x, tapOffset.y, normalized)
+                            val clickedLine = normalizer.findLineAt(
+                                tapOffset.x,
+                                tapOffset.y,
+                                normalized,
+                                density = density
+                            )
                             if (clickedLine != null) {
-                                onLineClicked(clickedLine)
+                                val selected = lines.firstOrNull { it.lineNumber == clickedLine }
+                                if (selected?.isReadable == true) {
+                                    onLineClicked(clickedLine)
+                                }
                             }
                         }
                     }
@@ -66,9 +86,8 @@ fun QuranPageView(
             val canvasW = size.width
             val canvasH = size.height
 
-            if (pageBitmap != null && !pageBitmap.isRecycled) {
+            if (imageBitmap != null) {
                 val proj = normalizer.calculateProjection(canvasW, canvasH)
-                val imageBitmap = pageBitmap.asImageBitmap()
 
                 drawImage(
                     image = imageBitmap,
@@ -76,20 +95,18 @@ fun QuranPageView(
                     dstSize = IntSize(proj.renderedWidth.toInt(), proj.renderedHeight.toInt())
                 )
 
-                // Render active line highlight if specified
-                if (activeLine != null && activeLine in 1..15) {
-                    val targetLine = lines.firstOrNull { it.lineNumber == activeLine }
-                    if (targetLine != null) {
-                        val norm = normalizer.normalize(targetLine, canvasW, canvasH, verticalAbsorptionPx = 4f)
-                        drawRoundRect(
-                            color = highlightColor,
-                            topLeft = Offset(norm.left, norm.top),
-                            size = Size(norm.width, norm.height),
-                            cornerRadius = CornerRadius(12f, 12f)
-                        )
-                    }
+                // Render active line highlight only if target is readable
+                if (targetLine != null) {
+                    val norm = normalizer.normalize(targetLine, canvasW, canvasH, verticalAbsorptionPx = 4f)
+                    drawRoundRect(
+                        color = highlightColor,
+                        topLeft = Offset(norm.left, norm.top),
+                        size = Size(norm.width, norm.height),
+                        cornerRadius = CornerRadius(12f, 12f)
+                    )
                 }
             }
         }
     }
 }
+

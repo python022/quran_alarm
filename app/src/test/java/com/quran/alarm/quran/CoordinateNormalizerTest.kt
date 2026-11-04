@@ -117,5 +117,64 @@ class CoordinateNormalizerTest {
         val norm = normalizer.normalize(sampleLine, 0f, 0f)
         assertNotNull(norm)
     }
+
+    @Test
+    fun testOverlappingLinesPicksClosestCenterToPreventLineMasking() {
+        // Two lines overlapping in vertical range [95..105] due to absorption padding
+        val line1 = com.quran.alarm.quran.domain.model.NormalizedLineRect(
+            lineNumber = 1,
+            left = 50f,
+            top = 20f,
+            right = 500f,
+            bottom = 105f, // centerY = 62.5
+            leftRatio = 0f,
+            topRatio = 0f,
+            rightRatio = 1f,
+            bottomRatio = 1f
+        )
+        val line2 = com.quran.alarm.quran.domain.model.NormalizedLineRect(
+            lineNumber = 2,
+            left = 50f,
+            top = 95f,
+            right = 500f,
+            bottom = 180f, // centerY = 137.5
+            leftRatio = 0f,
+            topRatio = 0f,
+            rightRatio = 1f,
+            bottomRatio = 1f
+        )
+
+        // Point at y = 98: distance to line1 center (62.5) is 35.5. Distance to line2 center (137.5) is 39.5
+        val hit1 = normalizer.findLineAt(250f, 98f, listOf(line1, line2))
+        assertEquals("Should pick line 1 as its center is closer", 1, hit1)
+
+        // Point at y = 104: distance to line1 center is 41.5. Distance to line2 center is 33.5
+        val hit2 = normalizer.findLineAt(250f, 104f, listOf(line1, line2))
+        assertEquals("Should pick line 2 to prevent masking the lower line", 2, hit2)
+    }
+
+    @Test
+    fun testDensityScalingAdjustsSnapDistance() {
+        val line = com.quran.alarm.quran.domain.model.NormalizedLineRect(
+            lineNumber = 1,
+            left = 50f,
+            top = 20f,
+            right = 500f,
+            bottom = 100f,
+            leftRatio = 0f,
+            topRatio = 0f,
+            rightRatio = 1f,
+            bottomRatio = 1f
+        )
+
+        // Point 50px below line bottom (y = 150)
+        // With base maxSnapDistancePx = 32 and density = 1.0f -> 50 > 32 -> returns null
+        val missMdpi = normalizer.findLineAt(250f, 150f, listOf(line), maxSnapDistancePx = 32f, density = 1.0f)
+        assertNull(missMdpi)
+
+        // With density = 3.0f (xxhdpi) -> effective snap distance = 32 * 3 = 96px -> 50 <= 96 -> snaps to line 1
+        val hitXxhdpi = normalizer.findLineAt(250f, 150f, listOf(line), maxSnapDistancePx = 32f, density = 3.0f)
+        assertEquals(1, hitXxhdpi)
+    }
 }
 
