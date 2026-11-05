@@ -7,13 +7,16 @@ import com.quran.alarm.quran.domain.model.LineRect
  */
 interface LineBoundsRepository {
     /**
-     * Retrieves the 15 line bounding boxes for the given page (1..604).
-     * Guaranteed to return a non-null, ordered list of 15 valid [LineRect] bounds.
+     * Retrieves the line bounding boxes for the given page (1..604).
+     * Guaranteed to return a non-null, ordered list of valid [LineRect] bounds
+     * (8 lines for pages 1 and 2, 15 lines for pages 3..604).
      */
     suspend fun getLinesForPage(pageNumber: Int): List<LineRect>
 
     /**
      * Synchronous variant for high-throughput rendering and background calculations.
+     * Guaranteed to return a non-null, ordered list of valid [LineRect] bounds
+     * (8 lines for pages 1 and 2, 15 lines for pages 3..604).
      */
     fun getLinesForPageSync(pageNumber: Int): List<LineRect>
 

@@ -2,8 +2,6 @@ package com.quran.alarm.ui.components
 
 import android.app.Activity
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
@@ -13,11 +11,26 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import android.media.AudioManager
-import android.media.ToneGenerator
 import androidx.compose.material3.OutlinedButton
+import android.media.ToneGenerator
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import com.quran.alarm.alarm.audio.SmartAlarmAudioManager
 import com.quran.alarm.alarm.domain.model.AlarmSoundPresets
 import com.quran.alarm.alarm.domain.model.SurahInfo
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -151,51 +164,18 @@ fun AddAlarmDialog(
     var selectedSoundTitle by remember {
         mutableStateOf(alarmToEdit?.soundTitle ?: AlarmSoundPresets.getTitleForUri(alarmToEdit?.soundUri))
     }
+    val audioManager = remember { SmartAlarmAudioManager(context) }
     var isPlayingPreview by remember { mutableStateOf(false) }
-    var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
 
     fun stopPreview() {
-        try {
-            previewPlayer?.stop()
-            previewPlayer?.release()
-        } catch (_: Exception) {}
-        previewPlayer = null
+        audioManager.stopAlarm()
         isPlayingPreview = false
     }
 
     fun playPreview(uriStr: String?) {
         stopPreview()
-        try {
-            val uri: Uri? = AlarmSoundPresets.resolveUri(context, uriStr)
-
-            if (uri != null) {
-                val mp = MediaPlayer().apply {
-                    setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build()
-                    )
-                    setDataSource(context, uri)
-                    val vol = (volumeLevel / 100f).coerceIn(0.1f, 1f)
-                    setVolume(vol, vol)
-                    isLooping = false
-                    setOnCompletionListener {
-                        isPlayingPreview = false
-                    }
-                    setOnErrorListener { _, _, _ ->
-                        isPlayingPreview = false
-                        true
-                    }
-                    prepareAsync()
-                    setOnPreparedListener {
-                        it.start()
-                        isPlayingPreview = true
-                    }
-                }
-                previewPlayer = mp
-            }
-        } catch (e: Exception) {
+        isPlayingPreview = true
+        audioManager.previewSound(uriStr, volumeLevel = volumeLevel.toInt()) {
             isPlayingPreview = false
         }
     }
@@ -412,375 +392,236 @@ fun AddAlarmDialog(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        when (selectionMode) {
-                            WirdSelectionMode.SURAHS -> {
-                                val startSurahObj = QuranStructure.getSurahByNumber(selectedStartSurah)
-                                val endSurahObj = QuranStructure.getSurahByNumber(selectedEndSurah)
-
-                                // Start Surah
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                            border = BorderStroke(1.dp, Color(0xFF334155))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Surface(
-                                        onClick = { showStartSurahPicker = true },
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF1E293B),
-                                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                        Text(
+                                            text = "البدء",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF38BDF8)
+                                        )
+                                        if (selectionMode == WirdSelectionMode.SURAHS) {
                                             Text(
-                                                text = "البدء: سورة ${startSurahObj.nameArabic}",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                            Text(
-                                                text = "ص ${startSurahObj.startPage} (اضغط للبحث)",
+                                                text = "🔍 بحث بالاسم",
                                                 fontSize = 10.sp,
-                                                color = Color(0xFF38BDF8)
+                                                color = Color(0xFF94A3B8),
+                                                modifier = Modifier
+                                                    .clickable { showStartSurahPicker = true }
+                                                    .padding(vertical = 2.dp)
                                             )
                                         }
                                     }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = {
-                                                if (selectedStartSurah > 1) {
-                                                    selectedStartSurah--
-                                                    startPage = QuranStructure.getSurahByNumber(selectedStartSurah).startPage
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
 
-                                        Button(
-                                            onClick = {
-                                                if (selectedStartSurah < 114) {
-                                                    selectedStartSurah++
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "الانتهاء",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF10B981)
+                                        )
+                                        if (selectionMode == WirdSelectionMode.SURAHS) {
+                                            Text(
+                                                text = "🔍 بحث بالاسم",
+                                                fontSize = 10.sp,
+                                                color = Color(0xFF94A3B8),
+                                                modifier = Modifier
+                                                    .clickable { showEndSurahPicker = true }
+                                                    .padding(vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    when (selectionMode) {
+                                        WirdSelectionMode.SURAHS -> {
+                                            val allSurahs = remember { (1..114).toList() }
+
+                                            // Start Surah Wheel
+                                            VerticalWheelPicker(
+                                                items = allSurahs,
+                                                selectedItem = selectedStartSurah,
+                                                onItemSelected = { surahNum ->
+                                                    selectedStartSurah = surahNum
                                                     if (selectedEndSurah < selectedStartSurah) {
                                                         selectedEndSurah = selectedStartSurah
                                                         endPage = QuranStructure.getSurahByNumber(selectedEndSurah).endPage
                                                     }
                                                     startPage = QuranStructure.getSurahByNumber(selectedStartSurah).startPage
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // End Surah
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        onClick = { showEndSurahPicker = true },
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF1E293B),
-                                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
-                                    ) {
-                                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                                            Text(
-                                                text = "الانتهاء: سورة ${endSurahObj.nameArabic}",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 13.sp,
+                                                showDividers = true,
+                                                itemLabel = {
+                                                    val s = QuranStructure.getSurahByNumber(it)
+                                                    "${s.nameArabic} (${s.startPage})"
+                                                },
+                                                modifier = Modifier.weight(1f)
                                             )
-                                            Text(
-                                                text = "ص ${endSurahObj.endPage} (اضغط للبحث)",
-                                                fontSize = 10.sp,
-                                                color = Color(0xFF38BDF8)
+
+                                            // End Surah Wheel (with auto-validation: end cannot drop below start)
+                                            VerticalWheelPicker(
+                                                items = allSurahs,
+                                                selectedItem = selectedEndSurah,
+                                                onItemSelected = { surahNum ->
+                                                    val valid = if (surahNum < selectedStartSurah) selectedStartSurah else surahNum
+                                                    selectedEndSurah = valid
+                                                    endPage = QuranStructure.getSurahByNumber(selectedEndSurah).endPage
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 13.sp,
+                                                showDividers = true,
+                                                itemLabel = {
+                                                    val s = QuranStructure.getSurahByNumber(it)
+                                                    "${s.nameArabic} (${s.endPage})"
+                                                },
+                                                modifier = Modifier.weight(1f)
                                             )
                                         }
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = {
-                                                if (selectedEndSurah > selectedStartSurah) {
-                                                    selectedEndSurah--
-                                                    endPage = QuranStructure.getSurahByNumber(selectedEndSurah).endPage
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                                        WirdSelectionMode.AHZAB -> {
+                                            val allAhzab = remember { (1..60).toList() }
 
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        Button(
-                                            onClick = {
-                                                if (selectedEndSurah < 114) {
-                                                    selectedEndSurah++
-                                                    endPage = QuranStructure.getSurahByNumber(selectedEndSurah).endPage
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
-                            }
-
-                            WirdSelectionMode.AHZAB -> {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "البدء من: الحزب $selectedStartHizb (ص ${QuranStructure.getStartPageForHizb(selectedStartHizb)})",
-                                        fontSize = 12.sp,
-                                        color = Color.White
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = {
-                                                if (selectedStartHizb > 1) {
-                                                    selectedStartHizb--
-                                                    startPage = QuranStructure.getStartPageForHizb(selectedStartHizb)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        Button(
-                                            onClick = {
-                                                if (selectedStartHizb < 60) {
-                                                    selectedStartHizb++
+                                            // Start Hizb Wheel
+                                            VerticalWheelPicker(
+                                                items = allAhzab,
+                                                selectedItem = selectedStartHizb,
+                                                onItemSelected = { hizbNum ->
+                                                    selectedStartHizb = hizbNum
                                                     if (selectedEndHizb < selectedStartHizb) {
                                                         selectedEndHizb = selectedStartHizb
                                                         endPage = QuranStructure.getEndPageForHizb(selectedEndHizb)
                                                     }
                                                     startPage = QuranStructure.getStartPageForHizb(selectedStartHizb)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 13.sp,
+                                                showDividers = true,
+                                                itemLabel = { "حزب $it (ص ${QuranStructure.getStartPageForHizb(it)})" },
+                                                modifier = Modifier.weight(1f)
+                                            )
 
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "الانتهاء في: الحزب $selectedEndHizb (ص ${QuranStructure.getEndPageForHizb(selectedEndHizb)})",
-                                        fontSize = 12.sp,
-                                        color = Color.White
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = {
-                                                if (selectedEndHizb > selectedStartHizb) {
-                                                    selectedEndHizb--
+                                            // End Hizb Wheel (with auto-validation: end cannot drop below start)
+                                            VerticalWheelPicker(
+                                                items = allAhzab,
+                                                selectedItem = selectedEndHizb,
+                                                onItemSelected = { hizbNum ->
+                                                    val valid = if (hizbNum < selectedStartHizb) selectedStartHizb else hizbNum
+                                                    selectedEndHizb = valid
                                                     endPage = QuranStructure.getEndPageForHizb(selectedEndHizb)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 13.sp,
+                                                showDividers = true,
+                                                itemLabel = { "حزب $it (ص ${QuranStructure.getEndPageForHizb(it)})" },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        WirdSelectionMode.AJZAA -> {
+                                            val allAjzaa = remember { (1..30).toList() }
 
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        Button(
-                                            onClick = {
-                                                if (selectedEndHizb < 60) {
-                                                    selectedEndHizb++
-                                                    endPage = QuranStructure.getEndPageForHizb(selectedEndHizb)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
-                            }
-
-                            WirdSelectionMode.AJZAA -> {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "البدء من: الجزء $selectedStartJuz (ص ${QuranStructure.getStartPageForJuz(selectedStartJuz)})",
-                                        fontSize = 12.sp,
-                                        color = Color.White
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = {
-                                                if (selectedStartJuz > 1) {
-                                                    selectedStartJuz--
-                                                    startPage = QuranStructure.getStartPageForJuz(selectedStartJuz)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        Button(
-                                            onClick = {
-                                                if (selectedStartJuz < 30) {
-                                                    selectedStartJuz++
+                                            // Start Juz Wheel
+                                            VerticalWheelPicker(
+                                                items = allAjzaa,
+                                                selectedItem = selectedStartJuz,
+                                                onItemSelected = { juzNum ->
+                                                    selectedStartJuz = juzNum
                                                     if (selectedEndJuz < selectedStartJuz) {
                                                         selectedEndJuz = selectedStartJuz
                                                         endPage = QuranStructure.getEndPageForJuz(selectedEndJuz)
                                                     }
                                                     startPage = QuranStructure.getStartPageForJuz(selectedStartJuz)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 13.sp,
+                                                showDividers = true,
+                                                itemLabel = { "جزء $it (ص ${QuranStructure.getStartPageForJuz(it)})" },
+                                                modifier = Modifier.weight(1f)
+                                            )
 
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "الانتهاء في: الجزء $selectedEndJuz (ص ${QuranStructure.getEndPageForJuz(selectedEndJuz)})",
-                                        fontSize = 12.sp,
-                                        color = Color.White
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = {
-                                                if (selectedEndJuz > selectedStartJuz) {
-                                                    selectedEndJuz--
+                                            // End Juz Wheel (with auto-validation: end cannot drop below start)
+                                            VerticalWheelPicker(
+                                                items = allAjzaa,
+                                                selectedItem = selectedEndJuz,
+                                                onItemSelected = { juzNum ->
+                                                    val valid = if (juzNum < selectedStartJuz) selectedStartJuz else juzNum
+                                                    selectedEndJuz = valid
                                                     endPage = QuranStructure.getEndPageForJuz(selectedEndJuz)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 13.sp,
+                                                showDividers = true,
+                                                itemLabel = { "جزء $it (ص ${QuranStructure.getEndPageForJuz(it)})" },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        WirdSelectionMode.PAGES -> {
+                                            val allPages = remember { (1..604).toList() }
 
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        Button(
-                                            onClick = {
-                                                if (selectedEndJuz < 30) {
-                                                    selectedEndJuz++
-                                                    endPage = QuranStructure.getEndPageForJuz(selectedEndJuz)
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
-                            }
-
-                            WirdSelectionMode.PAGES -> {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(text = "صفحة البداية: $startPage", fontSize = 12.sp, color = Color.White)
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = { if (startPage > 1) startPage-- },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        Button(
-                                            onClick = {
-                                                if (startPage < 604) {
-                                                    startPage++
+                                            // Start Page Wheel
+                                            VerticalWheelPicker(
+                                                items = allPages,
+                                                selectedItem = startPage,
+                                                onItemSelected = { p ->
+                                                    startPage = p
                                                     if (endPage < startPage) {
                                                         endPage = startPage
                                                     }
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                                    }
-                                }
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 16.sp,
+                                                showDividers = true,
+                                                itemLabel = { "ص $it" },
+                                                modifier = Modifier.weight(1f)
+                                            )
 
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(text = "صفحة النهاية: $endPage", fontSize = 12.sp, color = Color.White)
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Button(
-                                            onClick = { if (endPage > startPage) endPage-- },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        Button(
-                                            onClick = { if (endPage < 604) endPage++ },
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(48.dp),
-                                            contentPadding = PaddingValues(0.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                                            // End Page Wheel (with auto-validation: end cannot drop below start)
+                                            VerticalWheelPicker(
+                                                items = allPages,
+                                                selectedItem = endPage,
+                                                onItemSelected = { p ->
+                                                    val valid = if (p < startPage) startPage else p
+                                                    endPage = valid
+                                                },
+                                                isInfinite = false,
+                                                itemHeight = 44.dp,
+                                                fontSize = 16.sp,
+                                                showDividers = true,
+                                                itemLabel = { "ص $it" },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1161,6 +1002,11 @@ fun AddAlarmDialog(
                     syncPagesToMode(selectionMode)
                     val final24Hour = AlarmUiFormatters.toHour24(hour12, isAm)
                     val idToSave = alarmToEdit?.id ?: (System.currentTimeMillis() % 100000).toInt()
+                    val finalPageCount = if (endPage >= startPage) {
+                        endPage - startPage + 1
+                    } else {
+                        (604 - startPage + 1) + endPage
+                    }
                     val candidate = AlarmItem(
                         id = idToSave,
                         hour = final24Hour,
@@ -1171,7 +1017,7 @@ fun AddAlarmDialog(
                         label = label.ifBlank { "ورد القرآن الكريم" },
                         targetPage = startPage,
                         startPage = startPage,
-                        pageCount = calculatedPageCount,
+                        pageCount = finalPageCount,
                         volumeLevel = volumeLevel.toInt(),
                         soundUri = selectedSoundUri,
                         soundTitle = selectedSoundTitle,
@@ -1393,7 +1239,7 @@ fun ModernIslamicTimePickerCard(
         border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.35f))
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val timeBadge = when {
@@ -1417,97 +1263,260 @@ fun ModernIslamicTimePickerCard(
                 )
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                ModernDigitTile(
-                    value = String.format("%02d", hour12),
-                    label = "ساعة",
-                    onIncrement = { onHourChange(if (hour12 == 12) 1 else hour12 + 1) },
-                    onDecrement = { onHourChange(if (hour12 == 1) 12 else hour12 - 1) }
-                )
-
-                Text(
-                    text = ":",
-                    fontSize = 38.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color(0xFF10B981),
-                    modifier = Modifier.padding(horizontal = 10.dp)
-                )
-
-                ModernDigitTile(
-                    value = String.format("%02d", minute),
-                    label = "دقيقة",
-                    onIncrement = { onMinuteChange((minute + 1) % 60) },
-                    onDecrement = { onMinuteChange(if (minute == 0) 59 else minute - 1) }
-                )
-
-                Spacer(modifier = Modifier.width(14.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF1E293B),
-                    modifier = Modifier.width(52.dp)
+            // 3 adjacent columns: Hours, Separator, Minutes, AM/PM forced to LTR layout
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1E293B), shape = RoundedCornerShape(16.dp))
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
-                    Column(modifier = Modifier.padding(4.dp)) {
-                        PeriodTab(text = "ص", isSelected = isAm, onClick = { onAmPmToggle(true) })
-                        Spacer(modifier = Modifier.height(4.dp))
-                        PeriodTab(text = "م", isSelected = !isAm, onClick = { onAmPmToggle(false) })
+                    // Hours wheel (1..12, infinite loop, snap to center)
+                    VerticalWheelPicker(
+                        items = (1..12).toList(),
+                        selectedItem = hour12,
+                        onItemSelected = onHourChange,
+                        isInfinite = true,
+                        itemHeight = 44.dp,
+                        fontSize = 28.sp,
+                        showDividers = true,
+                        itemLabel = { String.format("%02d", it) },
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // Fixed Colon separator
+                    Box(
+                        modifier = Modifier
+                            .height(44.dp * 3),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = ":",
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF10B981),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
                     }
+
+                    // Minutes wheel (0..59, infinite loop, snap to center)
+                    VerticalWheelPicker(
+                        items = (0..59).toList(),
+                        selectedItem = minute,
+                        onItemSelected = onMinuteChange,
+                        isInfinite = true,
+                        itemHeight = 44.dp,
+                        fontSize = 28.sp,
+                        showDividers = true,
+                        itemLabel = { String.format("%02d", it) },
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Period wheel (ص / م)
+                    VerticalWheelPicker(
+                        items = listOf(true, false),
+                        selectedItem = isAm,
+                        onItemSelected = onAmPmToggle,
+                        isInfinite = false,
+                        itemHeight = 44.dp,
+                        fontSize = 22.sp,
+                        showDividers = true,
+                        itemLabel = { if (it) "ص" else "م" },
+                        modifier = Modifier.weight(0.7f)
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * Reusable vertical scroll wheel / drum picker matching Alarmy design:
+ * - 3 visible items vertically (center is selected in large bold white; top and bottom in dim gray)
+ * - 2 thin horizontal divider lines separating selected middle item
+ * - Snap to center
+ * - Infinite loop support for hours/minutes
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ModernDigitTile(
-    value: String,
-    label: String,
-    onIncrement: () -> Unit,
-    onDecrement: () -> Unit
+fun <T> VerticalWheelPicker(
+    items: List<T>,
+    selectedItem: T,
+    onItemSelected: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    isInfinite: Boolean = false,
+    itemHeight: Dp = 44.dp,
+    visibleItemsCount: Int = 3,
+    showDividers: Boolean = true,
+    fontSize: TextUnit = 22.sp,
+    itemLabel: (T) -> String = { it.toString() }
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = onIncrement, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "زيادة", tint = Color(0xFF38BDF8))
+    if (items.isEmpty()) return
+
+    val coroutineScope = rememberCoroutineScope()
+    val isEffectivelyInfinite = isInfinite && items.size > 1
+    val repeatCount = 10_000
+    val middleBase = if (isEffectivelyInfinite) (repeatCount / 2) * items.size else 0
+
+    val initialIndex = remember(items, selectedItem) {
+        val idx = items.indexOf(selectedItem)
+        if (idx >= 0) idx else 0
+    }
+
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = if (isEffectivelyInfinite) {
+            middleBase + initialIndex - 1
+        } else {
+            initialIndex
         }
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF1E293B),
-            border = BorderStroke(1.dp, Color(0xFF334155)),
-            modifier = Modifier.size(width = 76.dp, height = 70.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = value,
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+    )
+
+    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+
+    // Sync external programmatic updates to selectedItem or bounce back if parent clamped invalid selection
+    LaunchedEffect(selectedItem, listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress) {
+            val targetIdx = items.indexOf(selectedItem)
+            if (targetIdx >= 0) {
+                if (isEffectivelyInfinite) {
+                    val currentCenter = (listState.firstVisibleItemIndex + 1) % items.size
+                    if (currentCenter != targetIdx) {
+                        val currentCenterAbsolute = listState.firstVisibleItemIndex + 1
+                        val cycleBase = (currentCenterAbsolute / items.size) * items.size
+                        val targetFirst = (cycleBase + targetIdx - 1).let {
+                            if (it < 0) it + items.size else it
+                        }
+                        listState.animateScrollToItem(targetFirst)
+                    }
+                } else {
+                    if (listState.firstVisibleItemIndex != targetIdx) {
+                        listState.animateScrollToItem(targetIdx)
+                    }
+                }
             }
         }
-        IconButton(onClick = onDecrement, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "إنقاص", tint = Color(0xFF38BDF8))
-        }
-        Text(text = label, fontSize = 11.sp, color = Color(0xFF94A3B8))
     }
-}
 
-@Composable
-private fun PeriodTab(text: String, isSelected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = if (isSelected) Color(0xFF10B981) else Color.Transparent,
-        modifier = Modifier.fillMaxWidth().height(36.dp)
+    // Emit selection when scrolling stops
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
+            .collect { (firstIndex, isScrolling) ->
+                if (!isScrolling) {
+                    val selected = if (isEffectivelyInfinite) {
+                        val centerIndex = (firstIndex + 1) % items.size
+                        items.getOrNull(centerIndex)
+                    } else {
+                        items.getOrNull(firstIndex)
+                    }
+                    if (selected != null && selected != selectedItem) {
+                        onItemSelected(selected)
+                    }
+                }
+            }
+    }
+
+    Box(
+        modifier = modifier
+            .height(itemHeight * visibleItemsCount)
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = text,
-                color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                fontSize = 14.sp
+        if (isEffectivelyInfinite) {
+            val totalCount = items.size * repeatCount
+            LazyColumn(
+                state = listState,
+                flingBehavior = flingBehavior,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                items(totalCount) { index ->
+                    val actualItem = items[index % items.size]
+                    val isCenter = index == listState.firstVisibleItemIndex + 1
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(itemHeight)
+                            .clickable {
+                                coroutineScope.launch {
+                                    val targetScroll = (index - 1).coerceAtLeast(0)
+                                    listState.animateScrollToItem(targetScroll)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = itemLabel(actualItem),
+                            fontSize = if (isCenter) fontSize else (fontSize.value * 0.78f).sp,
+                            fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCenter) Color.White else Color(0xFF94A3B8),
+                            modifier = Modifier.alpha(if (isCenter) 1f else 0.35f),
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        } else {
+            val paddedItems = remember(items) { listOf(null) + items + listOf(null) }
+            LazyColumn(
+                state = listState,
+                flingBehavior = flingBehavior,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                items(paddedItems.size) { index ->
+                    val item = paddedItems[index]
+                    val isCenter = index == listState.firstVisibleItemIndex + 1
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(itemHeight)
+                            .then(
+                                if (item != null) {
+                                    Modifier.clickable {
+                                        coroutineScope.launch {
+                                            val targetFirst = (index - 1).coerceIn(0, items.size - 1)
+                                            listState.animateScrollToItem(targetFirst)
+                                        }
+                                    }
+                                } else Modifier
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (item != null) {
+                            Text(
+                                text = itemLabel(item),
+                                fontSize = if (isCenter) fontSize else (fontSize.value * 0.78f).sp,
+                                fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCenter) Color.White else Color(0xFF94A3B8),
+                                modifier = Modifier.alpha(if (isCenter) 1f else 0.35f),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showDividers) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(top = itemHeight)
+                    .height(1.dp)
+                    .background(Color(0xFF10B981).copy(alpha = 0.4f))
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(top = itemHeight * 2)
+                    .height(1.dp)
+                    .background(Color(0xFF10B981).copy(alpha = 0.4f))
             )
         }
     }

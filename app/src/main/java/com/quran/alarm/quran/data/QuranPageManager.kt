@@ -16,10 +16,12 @@ import kotlin.math.max
  * preventing OutOfMemory errors and keeping memory under 120 MB even after reading 50+ consecutive pages.
  */
 class QuranPageManager(
-    private val context: Context,
+    context: Context,
     private val maxCacheMemoryBytes: Int = 32 * 1024 * 1024, // 32 MB default cap
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
+    private val appContext = context.applicationContext ?: context
+
     companion object {
         const val PAGES_ASSET_DIR = "quran/pages"
         const val ESTIMATED_PAGE_BYTES = 1260 * 2038 * 2 // 5,135,760 bytes (~4.9 MB) per 1260x2038 RGB_565 page
@@ -60,7 +62,7 @@ class QuranPageManager(
 
         val fileName = "$PAGES_ASSET_DIR/${getPageFileName(safePage)}"
         val bitmap = try {
-            context.assets.open(fileName).use { stream ->
+            appContext.assets.open(fileName).use { stream ->
                 decodeBitmapFromStream(stream)
             }
         } catch (e: Exception) {
@@ -86,14 +88,13 @@ class QuranPageManager(
 
     /**
      * Preloads adjacent pages around [centerPage] to ensure seamless 60 FPS transitions.
+     * Supports Khatma wrap-around between page 604 and page 1.
      */
     suspend fun preloadPages(centerPage: Int, radius: Int = 1) = withContext(ioDispatcher) {
         for (offset in -radius..radius) {
             if (offset == 0) continue
-            val target = centerPage + offset
-            if (target in 1..604) {
-                getPageBitmapSync(target)
-            }
+            val target = ((centerPage + offset - 1).mod(604)) + 1
+            getPageBitmapSync(target)
         }
     }
 

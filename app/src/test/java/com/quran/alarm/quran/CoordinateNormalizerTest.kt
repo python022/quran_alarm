@@ -176,5 +176,21 @@ class CoordinateNormalizerTest {
         val hitXxhdpi = normalizer.findLineAt(250f, 150f, listOf(line), maxSnapDistancePx = 32f, density = 3.0f)
         assertEquals(1, hitXxhdpi)
     }
+
+    @Test
+    fun testDensityScalingMultipliesAbsorptionMargin() {
+        val baseNorm = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 8f, density = 1.0f)
+        val densityNorm = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 8f, density = 3.0f)
+
+        // sampleLine minY = 30, maxY = 145 (at 1260x2038 identity scale)
+        // With density = 1.0: absorption = 8px -> top = 30 - 8 = 22, bottom = 145 + 8 = 153
+        assertEquals(22f, baseNorm.top, 0.01f)
+        assertEquals(153f, baseNorm.bottom, 0.01f)
+
+        // With density = 3.0: absorption = 24px -> top = 30 - 24 = 6, bottom = 145 + 24 = 169
+        assertEquals(6f, densityNorm.top, 0.01f)
+        assertEquals(169f, densityNorm.bottom, 0.01f)
+        assertTrue("Height with density 3 must be strictly larger than density 1", densityNorm.height > baseNorm.height)
+    }
 }
 

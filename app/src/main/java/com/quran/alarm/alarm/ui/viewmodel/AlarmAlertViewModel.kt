@@ -2,6 +2,7 @@ package com.quran.alarm.alarm.ui.viewmodel
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -36,7 +37,11 @@ import java.util.Calendar
  */
 enum class AlarmAlertStage {
     RINGING,
-    MUSHAF_READING
+    MUSHAF_READING;
+
+    companion object {
+        val READING = MUSHAF_READING
+    }
 }
 
 /**
@@ -133,46 +138,57 @@ class AlarmAlertViewModel(
     fun loadPage(pageNumber: Int, resetToFirstReadable: Boolean = true) {
         val safePage = pageNumber.coerceIn(1, 604)
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, currentPage = safePage) }
+            try {
+                _uiState.update { it.copy(isLoading = true, currentPage = safePage) }
 
-            val lines = withContext(ioDispatcher) {
-                lineBoundsRepository.getLinesForPage(safePage)
-            }
-            val bitmap = withContext(ioDispatcher) {
-                pageManager?.loadPageBitmap(safePage)
-            }
-            withContext(ioDispatcher) {
-                pageManager?.preloadPages(safePage, radius = 1)
-            }
-
-            val maxLines = lineBoundsRepository.getPageLineCount(safePage)
-            val firstReadable = lines.firstOrNull { it.isReadable }?.lineNumber ?: 1
-
-            _uiState.update { current ->
-                val lineToSet = if (!resetToFirstReadable && current.activeLine in 1..maxLines && lines.any { it.lineNumber == current.activeLine && it.isReadable }) {
-                    current.activeLine
-                } else {
-                    firstReadable
+                val lines = withContext(ioDispatcher) {
+                    lineBoundsRepository.getLinesForPage(safePage)
                 }
-                current.copy(
-                    isLoading = false,
-                    currentPage = safePage,
-                    currentBitmap = bitmap,
-                    currentLines = lines,
-                    pageMaxLines = maxLines,
-                    activeLine = lineToSet
-                )
+                val bitmap = withContext(ioDispatcher) {
+                    pageManager?.loadPageBitmap(safePage)
+                }
+                withContext(ioDispatcher) {
+                    pageManager?.preloadPages(safePage, radius = 1)
+                }
+
+                val maxLines = lineBoundsRepository.getPageLineCount(safePage)
+                val firstReadable = lines.firstOrNull { it.isReadable }?.lineNumber ?: 1
+
+                _uiState.update { current ->
+                    val lineToSet = if (!resetToFirstReadable && current.activeLine in 1..maxLines && lines.any { it.lineNumber == current.activeLine && it.isReadable }) {
+                        current.activeLine
+                    } else {
+                        firstReadable
+                    }
+                    current.copy(
+                        isLoading = false,
+                        currentPage = safePage,
+                        currentBitmap = bitmap,
+                        currentLines = lines,
+                        pageMaxLines = maxLines,
+                        activeLine = lineToSet
+                    )
+                }
+                checkCompletion()
+            } catch (e: Exception) {
+                Log.e("AlarmAlertViewModel", "Error loading page $safePage: ${e.message}", e)
+                _uiState.update { it.copy(isLoading = false) }
             }
-            checkCompletion()
         }
     }
 
-    fun onLineClicked(lineNumber: Int) {
+    fun onLineClicked(lineNumber: Int, allowDirectJump: Boolean = true) {
         val state = _uiState.value
         val target = state.currentLines.firstOrNull { it.lineNumber == lineNumber }
         if (target != null && target.isReadable) {
-            _uiState.update { it.copy(activeLine = lineNumber, stage = AlarmAlertStage.MUSHAF_READING) }
-            checkCompletion()
+            val nextReadable = state.currentLines
+                .filter { it.lineNumber > state.activeLine && it.isReadable }
+                .minByOrNull { it.lineNumber }?.lineNumber
+
+            if (allowDirectJump || lineNumber <= state.activeLine || lineNumber == nextReadable) {
+                _uiState.update { it.copy(activeLine = lineNumber, stage = AlarmAlertStage.MUSHAF_READING) }
+                checkCompletion()
+            }
         }
     }
 
@@ -224,7 +240,6 @@ class AlarmAlertViewModel(
             val nextPage = state.wirdPages[state.pageIndexInWird + 1]
             _uiState.update { it.copy(completedPages = updatedCompleted) }
             loadPage(nextPage)
-            checkCompletion()
         }
     }
 
@@ -249,8 +264,7 @@ class AlarmAlertViewModel(
             _uiState.update {
                 it.copy(
                     completedPages = updatedCompleted,
-                    isWirdCompleted = isCompleted,
-                    stage = AlarmAlertStage.MUSHAF_READING
+                    isWirdCompleted = isCompleted
                 )
             }
         }
@@ -312,15 +326,16 @@ class AlarmAlertViewModel(
 }
 
 class AlarmAlertViewModelFactory(
-    private val context: Context,
+    context: Context,
     private val pageManager: QuranPageManager? = null,
     private val lineBoundsRepository: LineBoundsRepository? = null,
     private val alarmRepository: AlarmRepository? = null,
     private val alarmScheduler: AlarmScheduler? = null
 ) : ViewModelProvider.Factory {
+    private val appContext = context.applicationContext ?: context
+
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        val appContext = context.applicationContext
         val pm = pageManager ?: QuranPageManager(appContext)
         val lb = lineBoundsRepository ?: AyahInfoLineBoundsRepositoryImpl(AyahInfoDatabase.getInstance(appContext))
         val ar = alarmRepository ?: AlarmRepositoryImpl(appContext)

@@ -113,4 +113,14 @@ class QuranPageManagerTest {
         val trimmedSize = pageManager.getCacheSizeBytes()
         assertTrue("Cache size must be reduced after TRIM_MEMORY_MODERATE", trimmedSize <= initialSize)
     }
+
+    @Test
+    fun testPreloadPagesWrapAroundAtKhatmaBoundary() = runBlocking {
+        pageManager.clearCache()
+        assertEquals(0, pageManager.getCachedPagesCount())
+
+        // Around page 604, radius = 1: target pages are 603 and (604+1)->1
+        pageManager.preloadPages(centerPage = 604, radius = 1)
+        assertTrue("Cache should hold preloaded pages including wrap-around page 1", pageManager.getCachedPagesCount() >= 2)
+    }
 }

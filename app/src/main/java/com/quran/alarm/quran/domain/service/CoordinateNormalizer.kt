@@ -43,20 +43,22 @@ class CoordinateNormalizer(
     }
 
     /**
-     * Normalizes a single [LineRect] into screen coordinates with absorption padding.
+     * Normalizes a single [LineRect] into screen coordinates with absorption padding scaled by screen density.
      */
     fun normalize(
         line: LineRect,
         viewportWidth: Float,
         viewportHeight: Float,
-        verticalAbsorptionPx: Float = 8f
+        verticalAbsorptionPx: Float = 8f,
+        density: Float = 1.0f
     ): NormalizedLineRect {
         val proj = calculateProjection(viewportWidth, viewportHeight)
+        val effectiveAbsorptionPx = verticalAbsorptionPx * density
 
         val screenLeft = proj.offsetX + line.minX * proj.scale
         val screenRight = proj.offsetX + line.maxX * proj.scale
-        val screenTop = (proj.offsetY + line.minY * proj.scale - verticalAbsorptionPx).coerceAtLeast(0f)
-        val screenBottom = (proj.offsetY + line.maxY * proj.scale + verticalAbsorptionPx).coerceAtMost(viewportHeight)
+        val screenTop = (proj.offsetY + line.minY * proj.scale - effectiveAbsorptionPx).coerceAtLeast(0f)
+        val screenBottom = (proj.offsetY + line.maxY * proj.scale + effectiveAbsorptionPx).coerceAtMost(viewportHeight)
 
         // Ratios relative to the rendered page (independent of letterbox offsets)
         val leftRatio = (line.minX / referenceWidth).coerceIn(0f, 1f)
@@ -78,15 +80,16 @@ class CoordinateNormalizer(
     }
 
     /**
-     * Normalizes a full list of lines for a page.
+     * Normalizes a full list of lines for a page with density-scaled absorption padding.
      */
     fun normalizeAll(
         lines: List<LineRect>,
         viewportWidth: Float,
         viewportHeight: Float,
-        verticalAbsorptionPx: Float = 8f
+        verticalAbsorptionPx: Float = 8f,
+        density: Float = 1.0f
     ): List<NormalizedLineRect> {
-        return lines.map { normalize(it, viewportWidth, viewportHeight, verticalAbsorptionPx) }
+        return lines.map { normalize(it, viewportWidth, viewportHeight, verticalAbsorptionPx, density) }
     }
 
     /**

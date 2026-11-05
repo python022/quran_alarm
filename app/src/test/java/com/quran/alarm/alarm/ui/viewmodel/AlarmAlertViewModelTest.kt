@@ -464,6 +464,64 @@ class AlarmAlertViewModelTest {
         assertTrue("Snooze alarm must be scheduled in scheduler", fakeAlarmScheduler.scheduled.any { it.id == 55 })
     }
 
+    @Test
+    fun testSequentialLineClickEnforcedWhenDirectJumpDisallowed() = runTest {
+        // Page 10 has 15 lines (1..15)
+        viewModel.initialize(
+            alarmId = 10,
+            alarmLabel = "AntiCheat",
+            rawStartPage = 10,
+            rawPageCount = 1
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.activeLine)
+
+        // Attempt direct cheat jump to line 15 with allowDirectJump = false
+        viewModel.onLineClicked(15, allowDirectJump = false)
+        advanceUntilIdle()
+
+        // Active line must remain 1 because jumping directly to line 15 is blocked!
+        assertEquals("Direct cheat jump to line 15 must be blocked", 1, viewModel.uiState.value.activeLine)
+        assertFalse("Page 10 must NOT be marked complete", viewModel.uiState.value.isWirdCompleted)
+
+        // Sequential advancement: click next readable line (line 2)
+        viewModel.onLineClicked(2, allowDirectJump = false)
+        advanceUntilIdle()
+        assertEquals("Sequential click on line 2 must be accepted", 2, viewModel.uiState.value.activeLine)
+
+        // Re-reading prior line (line 1) is allowed
+        viewModel.onLineClicked(1, allowDirectJump = false)
+        advanceUntilIdle()
+        assertEquals("Selecting prior line 1 to re-read must be accepted", 1, viewModel.uiState.value.activeLine)
+    }
+
+    @Test
+    fun testReadingStageAliasAndTransition() = runTest {
+        viewModel.initialize(alarmId = 1, alarmLabel = "Fajr", rawStartPage = 1, rawPageCount = 1)
+        advanceUntilIdle()
+
+        assertEquals(AlarmAlertStage.RINGING, viewModel.uiState.value.stage)
+        viewModel.startReadingWird()
+
+        assertEquals(AlarmAlertStage.READING, viewModel.uiState.value.stage)
+        assertEquals(AlarmAlertStage.MUSHAF_READING, viewModel.uiState.value.stage)
+    }
+
+    @Test
+    fun testRingingStageNotPrematurelyOverwrittenDuringPageLoad() = runTest {
+        viewModel.initialize(alarmId = 99, alarmLabel = "SinglePage", rawStartPage = 1, rawPageCount = 1)
+        advanceUntilIdle()
+
+        // Even after page 1 finishes loading, stage must remain RINGING until user starts reading
+        assertEquals(AlarmAlertStage.RINGING, viewModel.uiState.value.stage)
+        assertFalse(viewModel.uiState.value.isDismissEnabled)
+
+        // User starts reading
+        viewModel.startReadingWird()
+        assertEquals(AlarmAlertStage.MUSHAF_READING, viewModel.uiState.value.stage)
+    }
+
     // Fake implementations for testing
     private class FakeLineBoundsRepository : LineBoundsRepository {
         override suspend fun getLinesForPage(pageNumber: Int): List<LineRect> {

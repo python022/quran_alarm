@@ -69,14 +69,12 @@ class AyahInfoDatabase(
                     }
                 }
                 if (tmpFile.length() == EXPECTED_DB_SIZE) {
-                    if (targetFile.exists()) {
-                        targetFile.delete()
-                    }
-                    if (!tmpFile.renameTo(targetFile)) {
+                    val renamed = tmpFile.renameTo(targetFile)
+                    if (!renamed) {
                         tmpFile.copyTo(targetFile, overwrite = true)
                         tmpFile.delete()
                     }
-                    prefs.edit().putInt(KEY_DB_VERSION, DB_VERSION).apply()
+                    prefs.edit().putInt(KEY_DB_VERSION, DB_VERSION).commit()
                 } else {
                     val actualLength = tmpFile.length()
                     tmpFile.delete()
@@ -252,6 +250,12 @@ class AyahInfoDatabase(
                 val midY = (curr.maxY + next.minY) / 2
                 resolved[i] = curr.copy(maxY = midY)
                 resolved[i + 1] = next.copy(minY = midY + 1)
+            }
+            if (resolved[i]!!.minY >= resolved[i]!!.maxY) {
+                resolved[i] = resolved[i]!!.copy(maxY = resolved[i]!!.minY + 1)
+            }
+            if (resolved[i + 1]!!.minY >= resolved[i + 1]!!.maxY) {
+                resolved[i + 1] = resolved[i + 1]!!.copy(maxY = resolved[i + 1]!!.minY + 1)
             }
         }
 

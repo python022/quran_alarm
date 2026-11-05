@@ -16,6 +16,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -104,9 +105,9 @@ class AlarmAlertActivity : ComponentActivity() {
     private var startPage: Int = 1
     private var pageCount: Int = 5
 
-    private lateinit var pageManager: QuranPageManager
+    private val pageManager by lazy { QuranPageManager(applicationContext) }
     private val viewModel: AlarmAlertViewModel by viewModels {
-        AlarmAlertViewModelFactory(this, pageManager)
+        AlarmAlertViewModelFactory(applicationContext, pageManager)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,8 +115,6 @@ class AlarmAlertActivity : ComponentActivity() {
         setupLockscreenFlags()
         setupImmersiveStickyMode()
         setupAntiBypassBackBlocker()
-
-        pageManager = QuranPageManager(this)
 
         alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
         alarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
@@ -139,7 +138,7 @@ class AlarmAlertActivity : ComponentActivity() {
                         uiState = uiState,
                         onPrevPage = { viewModel.goToPreviousPage() },
                         onNextPage = { viewModel.goToNextPage() },
-                        onLineClicked = { viewModel.onLineClicked(it) },
+                        onLineClicked = { viewModel.onLineClicked(it, allowDirectJump = false) },
                         onNextStep = { viewModel.advanceToNextLineOrPage() },
                         onStartReading = {
                             viewModel.startReadingWird()
@@ -171,21 +170,26 @@ class AlarmAlertActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        isDismissedOrSnoozed = false
-        alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
-        alarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
+        val newAlarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
+        val newAlarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
         val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1).coerceIn(1, 604)
-        startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
-        pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
+        val newStartPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
+        val newPageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
         val isSnoozeEnabled = intent.getBooleanExtra("com.quran.alarm.EXTRA_IS_SNOOZE_ENABLED", true)
-        viewModel.initialize(alarmId, alarmLabel, startPage, pageCount, isSnoozeEnabled)
+
+        if (newAlarmId != alarmId || viewModel.uiState.value.stage == AlarmAlertStage.RINGING) {
+            isDismissedOrSnoozed = false
+            alarmId = newAlarmId
+            alarmLabel = newAlarmLabel
+            startPage = newStartPage
+            pageCount = newPageCount
+            viewModel.initialize(alarmId, alarmLabel, startPage, pageCount, isSnoozeEnabled)
+        }
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (::pageManager.isInitialized) {
-            pageManager.onTrimMemory(level)
-        }
+        pageManager.onTrimMemory(level)
     }
 
     private fun setupLockscreenFlags() {
@@ -226,8 +230,7 @@ class AlarmAlertActivity : ComponentActivity() {
             KeyEvent.KEYCODE_VOLUME_UP,
             KeyEvent.KEYCODE_VOLUME_DOWN,
             KeyEvent.KEYCODE_VOLUME_MUTE,
-            KeyEvent.KEYCODE_BACK,
-            KeyEvent.KEYCODE_APP_SWITCH -> true
+            KeyEvent.KEYCODE_BACK -> true
             else -> super.onKeyDown(keyCode, event)
         }
     }
@@ -256,9 +259,7 @@ class AlarmAlertActivity : ComponentActivity() {
 
     override fun onDestroy() {
         isActivityVisible = false
-        if (::pageManager.isInitialized) {
-            pageManager.clearCache()
-        }
+        pageManager.clearCache()
         super.onDestroy()
     }
 
@@ -427,61 +428,69 @@ fun AlarmAlertScreen(
                 color = Color(0xFF0F172A),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            if (uiState.isDismissEnabled) {
-                                onDismissAlarm()
-                            } else {
-                                onNextStep()
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = if (uiState.activeLine < uiState.lastReadableLineOnPage) {
+                    if (uiState.isDismissEnabled) {
+                        Button(
+                            onClick = onDismissAlarm,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF10B981)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "إتمام الورد المبارك والخروج",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = onNextStep,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1E293B)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            val btnText = if (uiState.activeLine < uiState.lastReadableLineOnPage) {
                                 "السطر التالي"
                             } else if (uiState.hasNextPageInWird) {
                                 "الصفحة التالية"
                             } else {
-                                "تمت القراءة"
-                            },
-                            fontSize = 13.sp,
-                            color = Color(0xFF38BDF8)
-                        )
-                    }
-
-                    // Law 6 in AGENTS.md: Dismiss button strictly disabled until wird is completed
-                    Button(
-                        onClick = onDismissAlarm,
-                        enabled = uiState.isDismissEnabled,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF10B981),
-                            disabledContainerColor = Color(0xFF334155)
-                        ),
-                        modifier = Modifier.weight(1.2f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = if (uiState.isDismissEnabled) Color.White else Color(0xFF94A3B8),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "إتمام الورد",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = if (uiState.isDismissEnabled) Color.White else Color(0xFF94A3B8)
-                        )
+                                "السطر التالي"
+                            }
+                            Text(
+                                text = btnText,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF38BDF8)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }

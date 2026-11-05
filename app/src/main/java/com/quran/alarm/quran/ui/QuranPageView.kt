@@ -75,9 +75,9 @@ fun QuranPageView(
             IntSize(proj.renderedWidth.toInt(), proj.renderedHeight.toInt())
         }
 
-        val normHighlight = remember(targetLine, canvasW, canvasH) {
+        val normHighlight = remember(targetLine, canvasW, canvasH, density) {
             targetLine?.let { line ->
-                normalizer.normalize(line, canvasW, canvasH, verticalAbsorptionPx = 4f)
+                normalizer.normalize(line, canvasW, canvasH, verticalAbsorptionPx = 4f, density = density)
             }
         }
         val highlightTopLeft = remember(normHighlight) {
@@ -87,8 +87,8 @@ fun QuranPageView(
             normHighlight?.let { Size(it.width, it.height) }
         }
 
-        val normalizedLines = remember(lines, canvasW, canvasH) {
-            normalizer.normalizeAll(lines, canvasW, canvasH)
+        val normalizedLines = remember(lines, canvasW, canvasH, density) {
+            normalizer.normalizeAll(lines, canvasW, canvasH, verticalAbsorptionPx = 8f, density = density)
         }
 
         Canvas(

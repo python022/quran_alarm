@@ -88,8 +88,9 @@ class AlarmForegroundService : Service() {
                 audioManager.stopAlarm()
                 vibratorManager.stopVibration()
 
-                // Refresh and extend wake lock for uninterrupted reading session (45 minutes)
-                acquireReadingWakeLock()
+                // Release CPU wakelock to comply with Android 14+ mediaPlayback restrictions;
+                // screen stays awake via FLAG_KEEP_SCREEN_ON on the active AlarmAlertActivity window
+                releaseWakeLock()
 
                 val alarmId = intent.getIntExtra(EXTRA_ALARM_ID, 0)
                 val label = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
