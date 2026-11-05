@@ -17,27 +17,38 @@ import android.media.ToneGenerator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.DisposableEffect
 import com.quran.alarm.alarm.domain.model.AlarmSoundPresets
+import com.quran.alarm.alarm.domain.model.SurahInfo
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -101,7 +112,7 @@ fun AddAlarmDialog(
     // Multi-modal Wird selection
     var selectionMode by remember { mutableStateOf(WirdSelectionMode.SURAHS) }
     var selectedStartSurah by remember { mutableIntStateOf(QuranStructure.getSurahAtPage(alarmToEdit?.startPage ?: 2).number) }
-    var selectedEndSurah by remember { mutableIntStateOf(QuranStructure.getSurahAtPage(alarmToEdit?.endPage ?: 6).number) }
+    var selectedEndSurah by remember { mutableIntStateOf(QuranStructure.getLastSurahAtPage(alarmToEdit?.endPage ?: 6).number) }
     var selectedStartHizb by remember { mutableIntStateOf(QuranStructure.getHizbAtPage(alarmToEdit?.startPage ?: 1)) }
     var selectedEndHizb by remember { mutableIntStateOf(QuranStructure.getHizbAtPage(alarmToEdit?.endPage ?: 2)) }
     var selectedStartJuz by remember { mutableIntStateOf(QuranStructure.getJuzAtPage(alarmToEdit?.startPage ?: 1)) }
@@ -109,6 +120,30 @@ fun AddAlarmDialog(
 
     var startPage by remember { mutableIntStateOf(alarmToEdit?.startPage ?: 2) }
     var endPage by remember { mutableIntStateOf(alarmToEdit?.endPage ?: 6) }
+
+    var showStartSurahPicker by remember { mutableStateOf(false) }
+    var showEndSurahPicker by remember { mutableStateOf(false) }
+
+    fun syncPagesToMode(mode: WirdSelectionMode) {
+        selectionMode = mode
+        when (mode) {
+            WirdSelectionMode.SURAHS -> {
+                startPage = QuranStructure.getSurahByNumber(selectedStartSurah).startPage
+                endPage = QuranStructure.getSurahByNumber(selectedEndSurah).endPage
+            }
+            WirdSelectionMode.AHZAB -> {
+                startPage = QuranStructure.getStartPageForHizb(selectedStartHizb)
+                endPage = QuranStructure.getEndPageForHizb(selectedEndHizb)
+            }
+            WirdSelectionMode.AJZAA -> {
+                startPage = QuranStructure.getStartPageForJuz(selectedStartJuz)
+                endPage = QuranStructure.getEndPageForJuz(selectedEndJuz)
+            }
+            WirdSelectionMode.PAGES -> {
+                // retain current pages
+            }
+        }
+    }
     var isSequential by remember { mutableStateOf(alarmToEdit?.isSequential ?: true) }
     var volumeLevel by remember { mutableFloatStateOf(alarmToEdit?.volumeLevel?.toFloat() ?: 100f) }
 
@@ -210,6 +245,12 @@ fun AddAlarmDialog(
                 result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
             }
             if (uri != null) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {}
                 val ringtone = RingtoneManager.getRingtone(context, uri)
                 val title = ringtone?.getTitle(context) ?: "نغمة هاتف"
                 selectedSoundUri = uri.toString()
@@ -258,7 +299,7 @@ fun AddAlarmDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                // 1. Time Selector Header
+                // 1. Time Selector Header & Modern Islamic Glow Time Card
                 Text(
                     text = "وقت المنبه",
                     fontSize = 13.sp,
@@ -266,153 +307,14 @@ fun AddAlarmDialog(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Explicit AM / PM Segmented Switch
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF0F172A), RoundedCornerShape(12.dp))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Button(
-                        onClick = { isAm = true },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isAm) Color(0xFF10B981) else Color.Transparent
-                        ),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(
-                            text = "صباحاً (AM)",
-                            fontWeight = if (isAm) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isAm) Color.White else Color(0xFF94A3B8),
-                            fontSize = 13.sp
-                        )
-                    }
-
-                    Button(
-                        onClick = { isAm = false },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (!isAm) Color(0xFF38BDF8) else Color.Transparent
-                        ),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(
-                            text = "مساءً (PM)",
-                            fontWeight = if (!isAm) FontWeight.Bold else FontWeight.Normal,
-                            color = if (!isAm) Color.White else Color(0xFF94A3B8),
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Hour & Exact Minute Controls
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Hour selector
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = { hour12 = if (hour12 == 1) 12 else hour12 - 1 },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
-                            shape = CircleShape,
-                            modifier = Modifier.size(34.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("-", fontSize = 18.sp)
-                        }
-                        Text(
-                            text = String.format("%02d", hour12),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                        Button(
-                            onClick = { hour12 = if (hour12 == 12) 1 else hour12 + 1 },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
-                            shape = CircleShape,
-                            modifier = Modifier.size(34.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("+", fontSize = 18.sp)
-                        }
-                    }
-
-                    Text(
-                        text = ":",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-
-                    // Exact Minute selector (00..59)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = { minute = if (minute == 0) 59 else minute - 1 },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
-                            shape = CircleShape,
-                            modifier = Modifier.size(34.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("-", fontSize = 18.sp)
-                        }
-                        Text(
-                            text = String.format("%02d", minute),
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                        Button(
-                            onClick = { minute = (minute + 1) % 60 },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
-                            shape = CircleShape,
-                            modifier = Modifier.size(34.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("+", fontSize = 18.sp)
-                        }
-                    }
-                }
-
-                // Smooth Minute Slider (Direct drag to any minute 00..59)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "دقيقة: $minute",
-                        fontSize = 11.sp,
-                        color = Color(0xFF94A3B8),
-                        modifier = Modifier.width(55.dp)
-                    )
-                    Slider(
-                        value = minute.toFloat(),
-                        onValueChange = { minute = it.toInt().coerceIn(0, 59) },
-                        valueRange = 0f..59f,
-                        modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFF38BDF8),
-                            activeTrackColor = Color(0xFF38BDF8),
-                            inactiveTrackColor = Color(0xFF334155)
-                        )
-                    )
-                }
+                ModernIslamicTimePickerCard(
+                    hour12 = hour12,
+                    minute = minute,
+                    isAm = isAm,
+                    onHourChange = { hour12 = it },
+                    onMinuteChange = { minute = it },
+                    onAmPmToggle = { isAm = it }
+                )
 
                 // Live Alarm Countdown Text
                 val current24 = AlarmUiFormatters.toHour24(hour12, isAm)
@@ -455,7 +357,7 @@ fun AddAlarmDialog(
                                 listOf(WirdSelectionMode.SURAHS, WirdSelectionMode.AHZAB).forEach { mode ->
                                     FilterChip(
                                         selected = selectionMode == mode,
-                                        onClick = { selectionMode = mode },
+                                        onClick = { syncPagesToMode(mode) },
                                         modifier = Modifier.weight(1f),
                                         label = {
                                             Text(
@@ -484,7 +386,7 @@ fun AddAlarmDialog(
                                 listOf(WirdSelectionMode.AJZAA, WirdSelectionMode.PAGES).forEach { mode ->
                                     FilterChip(
                                         selected = selectionMode == mode,
-                                        onClick = { selectionMode = mode },
+                                        onClick = { syncPagesToMode(mode) },
                                         modifier = Modifier.weight(1f),
                                         label = {
                                             Text(
@@ -521,12 +423,28 @@ fun AddAlarmDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "البدء من: سورة ${startSurahObj.nameArabic} (ص ${startSurahObj.startPage})",
-                                        fontSize = 12.sp,
-                                        color = Color.White
-                                    )
-                                    Row {
+                                    Surface(
+                                        onClick = { showStartSurahPicker = true },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF1E293B),
+                                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                            Text(
+                                                text = "البدء: سورة ${startSurahObj.nameArabic}",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                            Text(
+                                                text = "ص ${startSurahObj.startPage} (اضغط للبحث)",
+                                                fontSize = 10.sp,
+                                                color = Color(0xFF38BDF8)
+                                            )
+                                        }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = {
                                                 if (selectedStartSurah > 1) {
@@ -535,10 +453,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -554,10 +472,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
 
@@ -569,12 +487,28 @@ fun AddAlarmDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "الانتهاء في: سورة ${endSurahObj.nameArabic} (ص ${endSurahObj.endPage})",
-                                        fontSize = 12.sp,
-                                        color = Color.White
-                                    )
-                                    Row {
+                                    Surface(
+                                        onClick = { showEndSurahPicker = true },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF1E293B),
+                                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                            Text(
+                                                text = "الانتهاء: سورة ${endSurahObj.nameArabic}",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                            Text(
+                                                text = "ص ${endSurahObj.endPage} (اضغط للبحث)",
+                                                fontSize = 10.sp,
+                                                color = Color(0xFF38BDF8)
+                                            )
+                                        }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = {
                                                 if (selectedEndSurah > selectedStartSurah) {
@@ -583,10 +517,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -598,10 +532,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
                             }
@@ -617,7 +551,7 @@ fun AddAlarmDialog(
                                         fontSize = 12.sp,
                                         color = Color.White
                                     )
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = {
                                                 if (selectedStartHizb > 1) {
@@ -626,10 +560,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -645,10 +579,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
 
@@ -664,7 +598,7 @@ fun AddAlarmDialog(
                                         fontSize = 12.sp,
                                         color = Color.White
                                     )
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = {
                                                 if (selectedEndHizb > selectedStartHizb) {
@@ -673,10 +607,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -688,10 +622,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
                             }
@@ -707,7 +641,7 @@ fun AddAlarmDialog(
                                         fontSize = 12.sp,
                                         color = Color.White
                                     )
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = {
                                                 if (selectedStartJuz > 1) {
@@ -716,10 +650,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -735,10 +669,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
 
@@ -754,7 +688,7 @@ fun AddAlarmDialog(
                                         fontSize = 12.sp,
                                         color = Color.White
                                     )
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = {
                                                 if (selectedEndJuz > selectedStartJuz) {
@@ -763,10 +697,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -778,10 +712,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
                             }
@@ -793,14 +727,14 @@ fun AddAlarmDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(text = "صفحة البداية: $startPage", fontSize = 12.sp, color = Color.White)
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = { if (startPage > 1) startPage-- },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -814,10 +748,10 @@ fun AddAlarmDialog(
                                                 }
                                             },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
 
@@ -829,24 +763,24 @@ fun AddAlarmDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(text = "صفحة النهاية: $endPage", fontSize = 12.sp, color = Color.White)
-                                    Row {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = { if (endPage > startPage) endPage-- },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("-", fontSize = 14.sp) }
+                                        ) { Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                                         Spacer(modifier = Modifier.width(6.dp))
 
                                         Button(
                                             onClick = { if (endPage < 604) endPage++ },
                                             shape = CircleShape,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(48.dp),
                                             contentPadding = PaddingValues(0.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                                        ) { Text("+", fontSize = 14.sp) }
+                                        ) { Text("+", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
                             }
@@ -1224,9 +1158,10 @@ fun AddAlarmDialog(
             Button(
                 onClick = {
                     stopPreview()
+                    syncPagesToMode(selectionMode)
                     val final24Hour = AlarmUiFormatters.toHour24(hour12, isAm)
                     val idToSave = alarmToEdit?.id ?: (System.currentTimeMillis() % 100000).toInt()
-                    val savedAlarm = AlarmItem(
+                    val candidate = AlarmItem(
                         id = idToSave,
                         hour = final24Hour,
                         minute = minute,
@@ -1242,6 +1177,8 @@ fun AddAlarmDialog(
                         soundTitle = selectedSoundTitle,
                         isSequential = isSequential
                     )
+                    val explicitTrigger = if (repeatDays.isEmpty()) candidate.getNextTriggerMillis() else null
+                    val savedAlarm = candidate.copy(explicitTriggerMillis = explicitTrigger)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
                         pendingAlarmToSave = savedAlarm
                         showOverlayPermissionPrompt = true
@@ -1317,5 +1254,261 @@ fun AddAlarmDialog(
                 }
             }
         )
+    }
+
+    if (showStartSurahPicker) {
+        SurahSearchPickerDialog(
+            title = "اختر سورة البداية",
+            onDismiss = { showStartSurahPicker = false },
+            onSelectSurah = { surah ->
+                selectedStartSurah = surah.number
+                startPage = surah.startPage
+                if (selectedEndSurah < selectedStartSurah) {
+                    selectedEndSurah = selectedStartSurah
+                    endPage = surah.endPage
+                }
+            }
+        )
+    }
+
+    if (showEndSurahPicker) {
+        SurahSearchPickerDialog(
+            title = "اختر سورة الانتهاء",
+            onDismiss = { showEndSurahPicker = false },
+            onSelectSurah = { surah ->
+                if (surah.number >= selectedStartSurah) {
+                    selectedEndSurah = surah.number
+                    endPage = surah.endPage
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun SurahSearchPickerDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    onSelectSurah: (SurahInfo) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredSurahs = remember(searchQuery) {
+        if (searchQuery.isBlank()) {
+            QuranStructure.SURAHS
+        } else {
+            val q = searchQuery.trim()
+            QuranStructure.SURAHS.filter {
+                it.nameArabic.contains(q) ||
+                it.number.toString().contains(q) ||
+                it.startPage.toString().contains(q)
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E293B),
+        title = {
+            Text(
+                text = title,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().height(360.dp)) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("ابحث باسم السورة أو رقمها...", fontSize = 12.sp, color = Color(0xFF64748B)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF10B981),
+                        unfocusedBorderColor = Color(0xFF334155)
+                    )
+                )
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(filteredSurahs, key = { it.number }) { surah ->
+                        Surface(
+                            onClick = {
+                                onSelectSurah(surah)
+                                onDismiss()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF0F172A),
+                            modifier = Modifier.fillMaxWidth().height(44.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${surah.number}. سورة ${surah.nameArabic}",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "ص ${surah.startPage}",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إغلاق", color = Color(0xFF94A3B8))
+            }
+        }
+    )
+}
+
+@Composable
+fun ModernIslamicTimePickerCard(
+    hour12: Int,
+    minute: Int,
+    isAm: Boolean,
+    onHourChange: (Int) -> Unit,
+    onMinuteChange: (Int) -> Unit,
+    onAmPmToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.35f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val timeBadge = when {
+                isAm && hour12 in 3..6 -> "🌅 وقت السحر وصلاة الفجر"
+                isAm -> "☀️ صباحاً"
+                hour12 >= 9 || hour12 in 1..2 -> "🌙 ثلث الليل الآخر (قيام الليل)"
+                else -> "🌆 مساءً"
+            }
+
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF1E293B),
+                modifier = Modifier.padding(bottom = 12.dp)
+            ) {
+                Text(
+                    text = timeBadge,
+                    fontSize = 11.sp,
+                    color = Color(0xFF38BDF8),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                ModernDigitTile(
+                    value = String.format("%02d", hour12),
+                    label = "ساعة",
+                    onIncrement = { onHourChange(if (hour12 == 12) 1 else hour12 + 1) },
+                    onDecrement = { onHourChange(if (hour12 == 1) 12 else hour12 - 1) }
+                )
+
+                Text(
+                    text = ":",
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF10B981),
+                    modifier = Modifier.padding(horizontal = 10.dp)
+                )
+
+                ModernDigitTile(
+                    value = String.format("%02d", minute),
+                    label = "دقيقة",
+                    onIncrement = { onMinuteChange((minute + 1) % 60) },
+                    onDecrement = { onMinuteChange(if (minute == 0) 59 else minute - 1) }
+                )
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF1E293B),
+                    modifier = Modifier.width(52.dp)
+                ) {
+                    Column(modifier = Modifier.padding(4.dp)) {
+                        PeriodTab(text = "ص", isSelected = isAm, onClick = { onAmPmToggle(true) })
+                        Spacer(modifier = Modifier.height(4.dp))
+                        PeriodTab(text = "م", isSelected = !isAm, onClick = { onAmPmToggle(false) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModernDigitTile(
+    value: String,
+    label: String,
+    onIncrement: () -> Unit,
+    onDecrement: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        IconButton(onClick = onIncrement, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "زيادة", tint = Color(0xFF38BDF8))
+        }
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF1E293B),
+            border = BorderStroke(1.dp, Color(0xFF334155)),
+            modifier = Modifier.size(width = 76.dp, height = 70.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = value,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
+        IconButton(onClick = onDecrement, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "إنقاص", tint = Color(0xFF38BDF8))
+        }
+        Text(text = label, fontSize = 11.sp, color = Color(0xFF94A3B8))
+    }
+}
+
+@Composable
+private fun PeriodTab(text: String, isSelected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) Color(0xFF10B981) else Color.Transparent,
+        modifier = Modifier.fillMaxWidth().height(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = text,
+                color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 14.sp
+            )
+        }
     }
 }

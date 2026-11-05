@@ -26,6 +26,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         if (action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == "android.intent.action.QUICKBOOT_POWERON" ||
             action == "com.htc.intent.action.QUICKBOOT_POWERON"
@@ -41,20 +42,42 @@ class BootReceiver : BroadcastReceiver() {
         val now = System.currentTimeMillis()
 
         for (alarm in activeAlarms) {
-            val updatedAlarm = if (alarm.explicitTriggerMillis != null && alarm.explicitTriggerMillis <= now) {
-                if (alarm.repeatDays.isNotEmpty()) {
+            val updatedAlarm = if (alarm.repeatDays.isEmpty()) {
+                val isExpired = if (alarm.explicitTriggerMillis != null) {
+                    alarm.explicitTriggerMillis <= now
+                } else {
+                    val cal = java.util.Calendar.getInstance().apply {
+                        timeInMillis = now
+                        set(java.util.Calendar.HOUR_OF_DAY, alarm.hour)
+                        set(java.util.Calendar.MINUTE, alarm.minute)
+                        set(java.util.Calendar.SECOND, 0)
+                        set(java.util.Calendar.MILLISECOND, 0)
+                    }
+                    cal.timeInMillis <= now
+                }
+                if (isExpired) {
+                    // One-shot alarm elapsed while phone was powered off: do NOT ring as ghost alarm
+                    val disabled = alarm.copy(isEnabled = false)
+                    repository.saveAlarm(disabled)
+                    null
+                } else {
+                    if (alarm.explicitTriggerMillis == null) {
+                        val withExplicit = alarm.copy(explicitTriggerMillis = alarm.getNextTriggerMillis(now))
+                        repository.saveAlarm(withExplicit)
+                        withExplicit
+                    } else {
+                        alarm
+                    }
+                }
+            } else {
+                if (alarm.explicitTriggerMillis != null && alarm.explicitTriggerMillis <= now) {
                     val nextTime = alarm.getNextTriggerMillis(now)
                     val refreshed = alarm.copy(explicitTriggerMillis = nextTime)
                     repository.saveAlarm(refreshed)
                     refreshed
                 } else {
-                    // One-shot alarm elapsed while phone was powered off: do NOT ring as ghost alarm
-                    val disabled = alarm.copy(isEnabled = false)
-                    repository.saveAlarm(disabled)
-                    null
+                    alarm
                 }
-            } else {
-                alarm
             }
             if (updatedAlarm != null && updatedAlarm.isEnabled) {
                 scheduler.schedule(updatedAlarm)

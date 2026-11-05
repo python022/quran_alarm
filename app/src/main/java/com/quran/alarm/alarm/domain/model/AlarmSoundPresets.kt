@@ -63,11 +63,12 @@ object AlarmSoundPresets {
                 try {
                     val parsed = Uri.parse(uriString)
                     val scheme = parsed.scheme?.lowercase()
-                    if (scheme == "http" || scheme == "https" || scheme == "ftp") {
-                        // Reject network URIs to comply with AGENTS.md Law 2 (Zero-Network)
-                        null
-                    } else {
+                    val allowedSchemes = setOf("content", "android.resource", "file")
+                    if (scheme in allowedSchemes) {
                         parsed
+                    } else {
+                        // Strict Whitelist rejects network/streaming schemes (http, https, ftp, rtsp, ws, smb) per AGENTS.md Law 2
+                        null
                     }
                 } catch (_: Exception) {
                     null

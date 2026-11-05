@@ -36,6 +36,7 @@
         <activity
             android:name=".ui.AlarmAlertActivity"
             android:exported="false"
+            android:directBootAware="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:excludeFromRecents="true"
@@ -45,6 +46,7 @@
 
         <receiver
             android:name=".alarm.receiver.AlarmReceiver"
+            android:directBootAware="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.quran.alarm.ACTION_TRIGGER_ALARM" />
@@ -53,8 +55,10 @@
 
         <receiver
             android:name=".alarm.receiver.BootReceiver"
+            android:directBootAware="true"
             android:exported="true">
             <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
@@ -64,6 +68,7 @@
 
         <service
             android:name=".alarm.service.AlarmForegroundService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 

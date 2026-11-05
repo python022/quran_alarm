@@ -57,12 +57,17 @@ class AlarmViewModel(
 
     fun saveAlarm(alarm: AlarmItem) {
         viewModelScope.launch {
+            val finalAlarm = if (alarm.repeatDays.isEmpty() && alarm.isEnabled && alarm.explicitTriggerMillis == null) {
+                alarm.copy(explicitTriggerMillis = alarm.getNextTriggerMillis())
+            } else {
+                alarm
+            }
             withContext(ioDispatcher) {
-                repository.saveAlarm(alarm)
-                if (alarm.isEnabled) {
-                    scheduler.schedule(alarm)
+                repository.saveAlarm(finalAlarm)
+                if (finalAlarm.isEnabled) {
+                    scheduler.schedule(finalAlarm)
                 } else {
-                    scheduler.cancel(alarm.id)
+                    scheduler.cancel(finalAlarm.id)
                 }
             }
             _uiState.update { it.copy(isAddEditDialogOpen = false, editingAlarm = null) }
@@ -72,7 +77,16 @@ class AlarmViewModel(
 
     fun toggleAlarm(alarm: AlarmItem, isEnabled: Boolean) {
         viewModelScope.launch {
-            val updated = alarm.copy(isEnabled = isEnabled)
+            val updated = alarm.copy(
+                isEnabled = isEnabled,
+                explicitTriggerMillis = if (isEnabled && alarm.repeatDays.isEmpty()) {
+                    alarm.getNextTriggerMillis()
+                } else if (!isEnabled) {
+                    null
+                } else {
+                    alarm.explicitTriggerMillis
+                }
+            )
             withContext(ioDispatcher) {
                 repository.saveAlarm(updated)
                 if (isEnabled) {

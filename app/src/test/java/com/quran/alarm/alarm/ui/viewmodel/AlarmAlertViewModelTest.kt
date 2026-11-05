@@ -20,6 +20,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.Calendar
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlarmAlertViewModelTest {
@@ -383,6 +384,84 @@ class AlarmAlertViewModelTest {
             defaultTitle = "ملف مخصص"
         )
         assertEquals("ملف مخصص", customTitle)
+    }
+
+    @Test
+    fun testGoToNextPage_recordsCurrentPageIntoCompletedPages_andAllowsDismissAtEnd() = runTest {
+        // 3 pages: 10, 11, 12
+        viewModel.initialize(
+            alarmId = 42,
+            alarmLabel = "Multi-page wird",
+            rawStartPage = 10,
+            rawPageCount = 3
+        )
+        advanceUntilIdle()
+
+        assertEquals(10, viewModel.uiState.value.currentPage)
+        // Click line 15 (last line on page 10)
+        viewModel.onLineClicked(15)
+        advanceUntilIdle()
+        assertTrue("Page 10 must be recorded in completedPages", 10 in viewModel.uiState.value.completedPages)
+        assertFalse("Dismiss must not be enabled until endPage", viewModel.uiState.value.isDismissEnabled)
+
+        // User navigates with goToNextPage()
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+        assertEquals(11, viewModel.uiState.value.currentPage)
+        assertTrue(10 in viewModel.uiState.value.completedPages)
+
+        // Read page 11 to last line and navigate
+        viewModel.onLineClicked(15)
+        advanceUntilIdle()
+        assertTrue(11 in viewModel.uiState.value.completedPages)
+
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+        assertEquals(12, viewModel.uiState.value.currentPage)
+
+        // Read to last line of final page (page 12)
+        viewModel.onLineClicked(15)
+        advanceUntilIdle()
+
+        assertTrue("Wird must be marked complete", viewModel.uiState.value.isWirdCompleted)
+        assertTrue("Dismiss must be enabled when reaching end of wird", viewModel.uiState.value.isDismissEnabled)
+    }
+
+    @Test
+    fun testSnooze_persistsSnoozeAlarmIntoRepository() = runTest {
+        val initialAlarm = AlarmItem(
+            id = 55,
+            hour = 5,
+            minute = 0,
+            repeatDays = setOf(Calendar.MONDAY, Calendar.FRIDAY),
+            isEnabled = true,
+            label = "صلاة الفجر"
+        )
+        fakeAlarmRepo.saveAlarm(initialAlarm)
+
+        viewModel.initialize(
+            alarmId = 55,
+            alarmLabel = "صلاة الفجر",
+            rawStartPage = 2,
+            rawPageCount = 4
+        )
+        advanceUntilIdle()
+
+        var snoozeInvoked = false
+        viewModel.snooze(minutes = 5) {
+            snoozeInvoked = true
+        }
+        advanceUntilIdle()
+
+        assertTrue(snoozeInvoked)
+        val savedInRepo = fakeAlarmRepo.getAlarmById(55)
+        assertNotNull("Snooze alarm must be saved in repository to survive reboot", savedInRepo)
+        assertTrue("Snooze alarm must be enabled", savedInRepo!!.isEnabled)
+        assertNotNull("Snooze alarm must have explicitTriggerMillis", savedInRepo.explicitTriggerMillis)
+        assertEquals("Snooze must preserve repeatDays so repeating alarm is not lost", setOf(Calendar.MONDAY, Calendar.FRIDAY), savedInRepo.repeatDays)
+        assertEquals("Snooze must preserve base alarm hour", 5, savedInRepo.hour)
+        assertEquals("Snooze must preserve base alarm minute", 0, savedInRepo.minute)
+        assertTrue("Snooze alarm must be scheduled in scheduler", fakeAlarmScheduler.scheduled.any { it.id == 55 })
     }
 
     // Fake implementations for testing

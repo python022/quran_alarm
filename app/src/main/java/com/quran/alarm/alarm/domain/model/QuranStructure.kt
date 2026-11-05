@@ -227,6 +227,12 @@ object QuranStructure {
             ?: SURAHS.first()
     }
 
+    fun getLastSurahAtPage(page: Int): SurahInfo {
+        require(page in 1..TOTAL_PAGES) { "Page must be between 1 and $TOTAL_PAGES" }
+        // Return the last surah that starts on or before this page (e.g. Surah 114 An-Nas on page 604)
+        return SURAHS.lastOrNull { it.startPage <= page } ?: SURAHS.last()
+    }
+
     fun getSurahsAtPage(page: Int): List<SurahInfo> {
         require(page in 1..TOTAL_PAGES) { "Page must be between 1 and $TOTAL_PAGES" }
         val startingHere = SURAHS.filter { it.startPage == page }

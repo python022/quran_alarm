@@ -83,12 +83,18 @@ class BootReschedulingTest {
 
     @Test
     fun verifyBootPermissionInManifest() {
-        val manifestFile = File("src/main/AndroidManifest.xml")
-        if (manifestFile.exists()) {
-            val content = manifestFile.readText()
-            assertTrue("RECEIVE_BOOT_COMPLETED must be declared", content.contains("RECEIVE_BOOT_COMPLETED"))
-            assertTrue("BootReceiver must be declared", content.contains("BootReceiver"))
-        }
+        val manifestFile = listOf(
+            File("app/src/main/AndroidManifest.xml"),
+            File("src/main/AndroidManifest.xml")
+        ).firstOrNull { it.exists() }
+        org.junit.Assert.assertNotNull("AndroidManifest.xml must exist for verification", manifestFile)
+        val content = manifestFile!!.readText()
+        assertTrue("RECEIVE_BOOT_COMPLETED must be declared", content.contains("RECEIVE_BOOT_COMPLETED"))
+        assertTrue("BootReceiver must be declared", content.contains("BootReceiver"))
+        assertTrue("directBootAware must be set on BootReceiver", content.contains("android:directBootAware=\"true\""))
+        val normalized = content.replace("\r\n", "\n")
+        assertTrue("AlarmReceiver must be directBootAware for locked ringing", normalized.contains("AlarmReceiver\"\n            android:directBootAware=\"true\""))
+        assertTrue("AlarmForegroundService must be directBootAware", normalized.contains("AlarmForegroundService\"\n            android:directBootAware=\"true\""))
     }
 
     @Test
@@ -121,5 +127,39 @@ class BootReschedulingTest {
         val saved = repo.getAlarmById(99)
         org.junit.Assert.assertNotNull(saved)
         org.junit.Assert.assertFalse(saved!!.isEnabled)
+    }
+
+    @Test
+    fun expiredOneShotAlarm_withNullExplicitTrigger_isNotRescheduledAsGhostAlarm() {
+        val repo = TestAlarmRepository()
+        val scheduler = TestAlarmScheduler()
+
+        // One-shot alarm set for 1 hour ago today, with explicitTriggerMillis = null
+        val now = java.util.Calendar.getInstance()
+        val hourPast = if (now.get(java.util.Calendar.HOUR_OF_DAY) > 0) now.get(java.util.Calendar.HOUR_OF_DAY) - 1 else 0
+
+        if (now.get(java.util.Calendar.HOUR_OF_DAY) > 0) {
+            val alarmWithoutExplicit = AlarmItem(
+                id = 98,
+                hour = hourPast,
+                minute = 0,
+                repeatDays = emptySet(),
+                isEnabled = true,
+                explicitTriggerMillis = null
+            )
+            repo.saveAlarm(alarmWithoutExplicit)
+
+            val receiver = BootReceiver().apply {
+                repositoryProvider = { repo }
+                schedulerProvider = { scheduler }
+            }
+
+            receiver.rescheduleAllAlarms(android.app.Application())
+
+            assertTrue(scheduler.scheduledAlarms.none { it.id == 98 })
+            val saved = repo.getAlarmById(98)
+            org.junit.Assert.assertNotNull(saved)
+            org.junit.Assert.assertFalse(saved!!.isEnabled)
+        }
     }
 }

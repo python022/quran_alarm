@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,8 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -23,6 +26,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -115,33 +120,34 @@ fun AlarmListScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
-            // 0. Overlay Permission Warning Banner
+            // 0. Overlay Permission Guidance Banner
             if (!uiState.isOverlayPermissionGranted) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF7F1D1D).copy(alpha = 0.9f))
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF78350F).copy(alpha = 0.85f)),
+                    border = BorderStroke(1.dp, Color(0xFFD97706).copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(text = "⚠️", fontSize = 16.sp)
+                            Text(text = "💡", fontSize = 16.sp)
                             Text(
-                                text = "مطلوب إذن الظهور فوق التطبيقات",
+                                text = "تنبيه لطيف: مطلوب إذن الظهور فوق التطبيقات",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = Color.White
+                                color = Color(0xFFFEF3C7)
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "لضمان رنين المنبه بملء الشاشة فورياً عند استخدام الهاتف ومنع إغلاقه قبل إنهاء الورد، يرجى تفعيل الصلاحية.",
-                            fontSize = 11.sp,
-                            color = Color(0xFFFCA5A5)
+                            text = "لضمان فتح شاشة المنبه بملء الشاشة فورياً ومساعدتك على الاستيقاظ والالتزام بوردك المبارك، يرجى تفعيل إذن الظهور.",
+                            fontSize = 12.sp,
+                            color = Color(0xFFFDE68A)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Button(
                             onClick = {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -152,7 +158,7 @@ fun AlarmListScreen(
                                     context.startActivity(intent)
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -253,17 +259,54 @@ fun AlarmListScreen(
                     CircularProgressIndicator(color = Color(0xFF10B981))
                 }
             } else if (uiState.alarms.isEmpty()) {
-                Box(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 40.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(top = 28.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    border = BorderStroke(1.dp, Color(0xFF334155))
                 ) {
-                    Text(
-                        text = "لا توجد منبهات. اضغط على (+) لإضافة منبه جديد.",
-                        color = Color(0xFF64748B),
-                        fontSize = 14.sp
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF10B981).copy(alpha = 0.15f),
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(text = "🕌", fontSize = 28.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "ابدأ يومك بنور القرآن والبركة",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "لم تقم بضبط أي منبه بعد. اضغط على زر (+) في الأسفل لضبط منبه الفجر ووردك القرآني اليومي مع ميزة تتبع التلاوة.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF94A3B8),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onAddClick,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(text = "إضافة منبه جديد", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
                 }
             } else {
                 LazyColumn(

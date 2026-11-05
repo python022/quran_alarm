@@ -107,6 +107,13 @@ fun QuranPageView(
                                 val selected = lines.firstOrNull { it.lineNumber == clickedLine }
                                 if (selected?.isReadable == true) {
                                     onLineClicked(clickedLine)
+                                } else {
+                                    val nearestReadable = lines
+                                        .filter { it.isReadable }
+                                        .minByOrNull { kotlin.math.abs(it.lineNumber - clickedLine) }
+                                    if (nearestReadable != null) {
+                                        onLineClicked(nearestReadable.lineNumber)
+                                    }
                                 }
                             }
                         }

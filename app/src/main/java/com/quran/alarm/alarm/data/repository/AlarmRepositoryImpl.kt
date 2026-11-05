@@ -11,7 +11,23 @@ import com.quran.alarm.alarm.domain.repository.AlarmRepository
  */
 class AlarmRepositoryImpl(
     context: Context,
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = run {
+        val storageContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            val deviceContext = if (context.isDeviceProtectedStorage) context else context.createDeviceProtectedStorageContext()
+            try {
+                val userManager = context.getSystemService(Context.USER_SERVICE) as? android.os.UserManager
+                if (userManager?.isUserUnlocked == true) {
+                    deviceContext.moveSharedPreferencesFrom(context, PREFS_NAME)
+                }
+            } catch (_: Exception) {
+                // Ignore migration exceptions (e.g. storage locked or already moved)
+            }
+            deviceContext
+        } else {
+            context
+        }
+        storageContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
 ) : AlarmRepository {
 
     companion object {

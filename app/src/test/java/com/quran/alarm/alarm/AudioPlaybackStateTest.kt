@@ -1,11 +1,36 @@
 package com.quran.alarm.alarm
 
+import android.content.Context
 import com.quran.alarm.alarm.audio.AudioPlaybackState
+import com.quran.alarm.alarm.audio.SmartAlarmAudioManager
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class AudioPlaybackStateTest {
+
+    private lateinit var context: Context
+    private val testDispatcher = StandardTestDispatcher()
+    private val testScope = TestScope(testDispatcher)
+    private lateinit var smartAudioManager: SmartAlarmAudioManager
+
+    @Before
+    fun setUp() {
+        context = RuntimeEnvironment.getApplication()
+        smartAudioManager = SmartAlarmAudioManager(context, testScope)
+    }
 
     @Test
     fun verifyAllStatesExist() {
@@ -18,31 +43,30 @@ class AudioPlaybackStateTest {
     }
 
     @Test
-    fun verifyAutoMuteLifecycleContract() {
-        // As defined in ADR-005:
-        // 1. Alarm triggers -> BLARING (maximum volume to wake user)
-        // 2. User looks at Mushaf -> transitions to MUTED (calm recitation)
-        // 3. User looks away > 2s -> transitions to BLARING (penalty scream)
-        // 4. User completes 15 lines -> transitions to STOPPED
+    fun verifySmartAudioManagerStateTransitions() = runTest(testDispatcher) {
+        // Initial state is IDLE
+        assertEquals(AudioPlaybackState.IDLE, smartAudioManager.playbackState.value)
 
-        var currentState = AudioPlaybackState.IDLE
-        assertEquals(AudioPlaybackState.IDLE, currentState)
+        // smoothMute guard: must not mute when IDLE
+        smartAudioManager.smoothMute(durationMs = 0L)
+        testScheduler.advanceUntilIdle()
+        assertEquals(AudioPlaybackState.IDLE, smartAudioManager.playbackState.value)
 
-        // Step 1: Trigger alarm
-        currentState = AudioPlaybackState.BLARING
-        assertEquals(AudioPlaybackState.BLARING, currentState)
+        // 1. Alarm triggers -> BLARING
+        smartAudioManager.startAlarm(soundUriString = null, volumeLevel = 80)
+        assertEquals(AudioPlaybackState.BLARING, smartAudioManager.playbackState.value)
 
-        // Step 2: Attention detected -> Auto-Mute
-        currentState = AudioPlaybackState.MUTED
-        assertEquals(AudioPlaybackState.MUTED, currentState)
+        // 2. User looks at Mushaf -> transitions to MUTED
+        smartAudioManager.smoothMute(durationMs = 0L)
+        testScheduler.advanceUntilIdle()
+        assertEquals(AudioPlaybackState.MUTED, smartAudioManager.playbackState.value)
 
-        // Step 3: Look away penalty -> Scream
-        currentState = AudioPlaybackState.BLARING
-        assertEquals(AudioPlaybackState.BLARING, currentState)
+        // 3. User looks away -> transitions to BLARING (instant scream)
+        smartAudioManager.instantScream()
+        assertEquals(AudioPlaybackState.BLARING, smartAudioManager.playbackState.value)
 
-        // Step 4: Completion -> Stop
-        currentState = AudioPlaybackState.STOPPED
-        assertEquals(AudioPlaybackState.STOPPED, currentState)
+        // 4. Wird completion -> transitions to STOPPED
+        smartAudioManager.stopAlarm()
+        assertEquals(AudioPlaybackState.STOPPED, smartAudioManager.playbackState.value)
     }
 }
-

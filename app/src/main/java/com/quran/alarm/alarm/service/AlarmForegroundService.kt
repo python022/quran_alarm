@@ -59,6 +59,7 @@ class AlarmForegroundService : Service() {
     private var serviceJob = Job()
     private var serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
     private var isAlarmRinging = false
+    private var watchdogJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,6 +81,9 @@ class AlarmForegroundService : Service() {
         when (intent.action) {
             ACTION_SILENCE_RINGING -> {
                 // Silences alarm audio and vibration so user can recite Quran in peace
+                isAlarmRinging = false
+                watchdogJob?.cancel()
+                watchdogJob = null
                 volumeEnforcer.stopEnforcing()
                 audioManager.stopAlarm()
                 vibratorManager.stopVibration()
@@ -98,6 +102,8 @@ class AlarmForegroundService : Service() {
             }
             ACTION_STOP_ALARM -> {
                 isAlarmRinging = false
+                watchdogJob?.cancel()
+                watchdogJob = null
                 serviceJob.cancel()
                 serviceJob = Job()
                 serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
@@ -143,16 +149,17 @@ class AlarmForegroundService : Service() {
                 launchAlarmActivity(alarmId, label, startPage, pageCount)
 
                 // Start watchdog coroutine to guarantee AlarmAlertActivity stays front and center
+                watchdogJob?.cancel()
                 isAlarmRinging = true
-                startWatchdog(alarmId, label, startPage, pageCount)
+                watchdogJob = startWatchdog(alarmId, label, startPage, pageCount)
             }
         }
 
         return START_STICKY
     }
 
-    private fun startWatchdog(alarmId: Int, label: String, startPage: Int, pageCount: Int) {
-        serviceScope.launch {
+    private fun startWatchdog(alarmId: Int, label: String, startPage: Int, pageCount: Int): Job {
+        return serviceScope.launch {
             while (isAlarmRinging) {
                 delay(750)
                 try {

@@ -195,10 +195,11 @@ class AlarmAlertViewModel(
             loadPage(nextPage)
         } else {
             // Reached last readable line of final wird page
+            val updatedCompleted = state.completedPages + state.currentPage
             val priorPages = state.wirdPages.takeWhile { it != state.endPage }
-            val allPriorCompleted = priorPages.all { it in state.completedPages }
+            val allPriorCompleted = priorPages.all { it in updatedCompleted }
             if (allPriorCompleted || state.wirdPages.size <= 1) {
-                _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true, stage = AlarmAlertStage.MUSHAF_READING) }
+                _uiState.update { it.copy(completedPages = updatedCompleted, isWirdCompleted = true, stage = AlarmAlertStage.MUSHAF_READING) }
             }
         }
     }
@@ -214,19 +215,44 @@ class AlarmAlertViewModel(
     fun goToNextPage() {
         val state = _uiState.value
         if (state.hasNextPageInWird) {
+            val lastReadable = state.currentLines.filter { it.isReadable }.maxOfOrNull { it.lineNumber } ?: state.pageMaxLines
+            val updatedCompleted = if (state.activeLine >= lastReadable) {
+                state.completedPages + state.currentPage
+            } else {
+                state.completedPages
+            }
             val nextPage = state.wirdPages[state.pageIndexInWird + 1]
+            _uiState.update { it.copy(completedPages = updatedCompleted) }
             loadPage(nextPage)
+            checkCompletion()
         }
     }
 
     private fun checkCompletion() {
         val state = _uiState.value
         val lastReadable = state.currentLines.filter { it.isReadable }.maxOfOrNull { it.lineNumber } ?: state.pageMaxLines
-        val priorPages = state.wirdPages.takeWhile { it != state.endPage }
-        val allPriorCompleted = priorPages.all { it in state.completedPages }
 
-        if (state.currentPage == state.endPage && state.activeLine >= lastReadable && (allPriorCompleted || state.wirdPages.size <= 1)) {
-            _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, isWirdCompleted = true, stage = AlarmAlertStage.MUSHAF_READING) }
+        val isCurrentPageFinished = state.activeLine >= lastReadable
+        val updatedCompleted = if (isCurrentPageFinished) {
+            state.completedPages + state.currentPage
+        } else {
+            state.completedPages
+        }
+
+        val allWirdCompleted = state.wirdPages.all { it in updatedCompleted }
+        val priorPages = state.wirdPages.takeWhile { it != state.endPage }
+        val allPriorCompleted = priorPages.all { it in updatedCompleted }
+
+        val isCompleted = allWirdCompleted || (state.currentPage == state.endPage && isCurrentPageFinished && (allPriorCompleted || state.wirdPages.size <= 1))
+
+        if (updatedCompleted != state.completedPages || isCompleted != state.isWirdCompleted) {
+            _uiState.update {
+                it.copy(
+                    completedPages = updatedCompleted,
+                    isWirdCompleted = isCompleted,
+                    stage = AlarmAlertStage.MUSHAF_READING
+                )
+            }
         }
     }
 
@@ -273,12 +299,10 @@ class AlarmAlertViewModel(
                 )
 
                 val snoozeItem = baseAlarm.copy(
-                    hour = cal.get(Calendar.HOUR_OF_DAY),
-                    minute = cal.get(Calendar.MINUTE),
-                    repeatDays = emptySet(),
                     isEnabled = true,
                     explicitTriggerMillis = snoozeTime
                 )
+                alarmRepository.saveAlarm(snoozeItem)
                 alarmScheduler.schedule(snoozeItem)
             }
             _uiState.update { it.copy(isDismissedOrSnoozed = true) }

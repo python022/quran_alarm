@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
@@ -164,6 +166,19 @@ class AlarmAlertActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        isDismissedOrSnoozed = false
+        alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
+        alarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
+        val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1).coerceIn(1, 604)
+        startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
+        pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
+        val isSnoozeEnabled = intent.getBooleanExtra("com.quran.alarm.EXTRA_IS_SNOOZE_ENABLED", true)
+        viewModel.initialize(alarmId, alarmLabel, startPage, pageCount, isSnoozeEnabled)
     }
 
     override fun onTrimMemory(level: Int) {
@@ -349,6 +364,13 @@ fun AlarmAlertScreen(
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = "السابقة",
+                            tint = if (uiState.hasPrevPageInWird) Color.White else Color(0xFF64748B),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("السابقة", fontSize = 12.sp)
                     }
 
@@ -373,6 +395,13 @@ fun AlarmAlertScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
                         Text("التالية", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "التالية",
+                            tint = if (uiState.hasNextPageInWird) Color.White else Color(0xFF64748B),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }
@@ -406,7 +435,13 @@ fun AlarmAlertScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = onNextStep,
+                        onClick = {
+                            if (uiState.isDismissEnabled) {
+                                onDismissAlarm()
+                            } else {
+                                onNextStep()
+                            }
+                        },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -416,7 +451,7 @@ fun AlarmAlertScreen(
                             } else if (uiState.hasNextPageInWird) {
                                 "الصفحة التالية"
                             } else {
-                                "إتمام الورد"
+                                "تمت القراءة"
                             },
                             fontSize = 13.sp,
                             color = Color(0xFF38BDF8)
