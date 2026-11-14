@@ -19,7 +19,7 @@ class QuranAssetsIntegrityTest {
         assertEquals("There must be exactly 604 WebP pages in assets", 604, files.size)
 
         for (page in 1..604) {
-            val pageFileName = String.format("page_%03d.webp", page)
+            val pageFileName = com.quran.alarm.quran.data.QuranPageManager.getPageFileName(page)
             val pageFile = File(pagesDir, pageFileName)
             assertTrue("Page $page file ($pageFileName) must exist", pageFile.exists())
             assertTrue("Page $page file must have positive byte size", pageFile.length() > 1024)

@@ -98,7 +98,8 @@ data class AlarmItem(
         val nextStart = Math.floorMod(safeStart + safeCount - 1, 604) + 1
         return copy(
             startPage = nextStart,
-            targetPage = nextStart
+            targetPage = nextStart,
+            explicitTriggerMillis = null
         )
     }
 

@@ -71,10 +71,87 @@ class AlarmUiFormattersTest {
 
     @Test
     fun formatNextAlarmCountdown_calculatesCorrectText() {
-        val now = 1_000_000L
+        val now = 1_200_000L // Clean 20-minute multiple from epoch (second = 0, ms = 0)
+        assertEquals("المنبه الآن", AlarmUiFormatters.formatNextAlarmCountdown(now, now))
         assertEquals("المنبه خلال أقل من دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + 30_000L, now))
+        assertEquals("المنبه خلال دقيقة واحدة", AlarmUiFormatters.formatNextAlarmCountdown(now + 60_000L, now))
+        assertEquals("المنبه خلال دقيقتين", AlarmUiFormatters.formatNextAlarmCountdown(now + 120_000L, now))
         assertEquals("المنبه خلال 45 دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + 45 * 60_000L, now))
         assertEquals("المنبه خلال 2 ساعة", AlarmUiFormatters.formatNextAlarmCountdown(now + 120 * 60_000L, now))
         assertEquals("المنبه خلال 3 ساعة و 25 دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + (3 * 60 + 25) * 60_000L, now))
+    }
+
+    @Test
+    fun formatNextAlarmCountdown_cleanMinuteDifference_matchesUserExpectation() {
+        // e.g. Phone clock is 02:33:45
+        val phoneTime = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 2)
+            set(Calendar.MINUTE, 33)
+            set(Calendar.SECOND, 45)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        // Target set to 02:34:00 (1 clean minute ahead) -> "المنبه خلال دقيقة واحدة"
+        val targetNextMinute = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 2)
+            set(Calendar.MINUTE, 34)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        assertEquals("المنبه خلال دقيقة واحدة", AlarmUiFormatters.formatNextAlarmCountdown(targetNextMinute, phoneTime))
+
+        // Target set to 02:35:00 (2 clean minutes ahead) -> "المنبه خلال دقيقتين"
+        val targetTwoMinutes = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 2)
+            set(Calendar.MINUTE, 35)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        assertEquals("المنبه خلال دقيقتين", AlarmUiFormatters.formatNextAlarmCountdown(targetTwoMinutes, phoneTime))
+
+        // Within same minute (e.g. 02:33:10 to 02:33:50) -> "المنبه خلال أقل من دقيقة"
+        val earlierInSameMinute = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 2)
+            set(Calendar.MINUTE, 33)
+            set(Calendar.SECOND, 10)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val laterInSameMinute = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 2)
+            set(Calendar.MINUTE, 33)
+            set(Calendar.SECOND, 50)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        assertEquals("المنبه خلال أقل من دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(laterInSameMinute, earlierInSameMinute))
+    }
+
+    @Test
+    fun formatNextAlarmCountdown_withTargetDayName_includesDayName() {
+        val now = 1_200_000L
+        val future = now + (57 * 60 + 19) * 60_000L
+        val text = AlarmUiFormatters.formatNextAlarmCountdown(
+            triggerMillis = future,
+            fromMillis = now,
+            targetDayName = "الأحد"
+        )
+        assertEquals("المنبه يوم الأحد خلال 57 ساعة و 19 دقيقة", text)
+
+        val textShort = AlarmUiFormatters.formatNextAlarmCountdown(
+            triggerMillis = now + 45 * 60_000L,
+            fromMillis = now,
+            targetDayName = "الجمعة"
+        )
+        assertEquals("المنبه يوم الجمعة خلال 45 دقيقة", textShort)
+    }
+
+    @Test
+    fun getDayName_returnsArabicDayNames() {
+        assertEquals("السبت", AlarmUiFormatters.getDayName(Calendar.SATURDAY))
+        assertEquals("الأحد", AlarmUiFormatters.getDayName(Calendar.SUNDAY))
+        assertEquals("الاثنين", AlarmUiFormatters.getDayName(Calendar.MONDAY))
+        assertEquals("الثلاثاء", AlarmUiFormatters.getDayName(Calendar.TUESDAY))
+        assertEquals("الأربعاء", AlarmUiFormatters.getDayName(Calendar.WEDNESDAY))
+        assertEquals("الخميس", AlarmUiFormatters.getDayName(Calendar.THURSDAY))
+        assertEquals("الجمعة", AlarmUiFormatters.getDayName(Calendar.FRIDAY))
     }
 }

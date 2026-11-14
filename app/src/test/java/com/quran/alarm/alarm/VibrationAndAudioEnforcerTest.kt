@@ -60,11 +60,13 @@ class VibrationAndAudioEnforcerTest {
 
     @Test
     fun verifyVibratePermissionDeclaredInManifest() {
-        val manifestFile = File("src/main/AndroidManifest.xml")
-        if (manifestFile.exists()) {
-            val content = manifestFile.readText()
-            assertTrue("android.permission.VIBRATE must be declared in AndroidManifest.xml", content.contains("android.permission.VIBRATE"))
-        }
+        val manifestFile = listOf(
+            File("src/main/AndroidManifest.xml"),
+            File("app/src/main/AndroidManifest.xml")
+        ).firstOrNull { it.exists() }
+            ?: error("AndroidManifest.xml must exist")
+        val content = manifestFile.readText()
+        assertTrue("android.permission.VIBRATE must be declared in AndroidManifest.xml", content.contains("android.permission.VIBRATE"))
     }
 }
 

@@ -18,6 +18,7 @@ import com.quran.alarm.quran.domain.model.LineRect
 import com.quran.alarm.quran.domain.repository.LineBoundsRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,6 +71,7 @@ data class MushafReaderUiState(
     val hasPrevPageInWird: Boolean get() = pageIndexInWird > 0
     val hasNextPageInWird: Boolean get() = pageIndexInWird >= 0 && pageIndexInWird < wirdPages.size - 1
     val lastReadableLineOnPage: Int get() = currentLines.filter { it.isReadable }.maxOfOrNull { it.lineNumber } ?: pageMaxLines
+    val canNavigateNextInAlert: Boolean get() = hasNextPageInWird && (currentPage in completedPages || activeLine >= lastReadableLineOnPage)
 
     /**
      * Law 6 in AGENTS.md (Single Sacred Mission Law):
@@ -94,6 +96,9 @@ class AlarmAlertViewModel(
     private val _uiState = MutableStateFlow(MushafReaderUiState())
     val uiState: StateFlow<MushafReaderUiState> = _uiState.asStateFlow()
 
+    private var loadPageJob: Job? = null
+    private val visitedLineByPage = mutableMapOf<Int, Int>()
+
     fun initialize(
         alarmId: Int,
         alarmLabel: String,
@@ -101,6 +106,7 @@ class AlarmAlertViewModel(
         rawPageCount: Int,
         isSnoozeEnabled: Boolean = true
     ) {
+        visitedLineByPage.clear()
         val safeStartPage = rawStartPage.coerceIn(1, 604)
         val safePageCount = rawPageCount.coerceAtLeast(1)
         val computedWirdPages = (0 until safePageCount).map { Math.floorMod(safeStartPage - 1 + it, 604) + 1 }
@@ -137,7 +143,9 @@ class AlarmAlertViewModel(
 
     fun loadPage(pageNumber: Int, resetToFirstReadable: Boolean = true) {
         val safePage = pageNumber.coerceIn(1, 604)
-        viewModelScope.launch {
+        val wasSamePage = _uiState.value.currentPage == safePage
+        loadPageJob?.cancel()
+        loadPageJob = viewModelScope.launch {
             try {
                 _uiState.update { it.copy(isLoading = true, currentPage = safePage) }
 
@@ -147,19 +155,17 @@ class AlarmAlertViewModel(
                 val bitmap = withContext(ioDispatcher) {
                     pageManager?.loadPageBitmap(safePage)
                 }
-                withContext(ioDispatcher) {
-                    pageManager?.preloadPages(safePage, radius = 1)
-                }
-
                 val maxLines = lineBoundsRepository.getPageLineCount(safePage)
                 val firstReadable = lines.firstOrNull { it.isReadable }?.lineNumber ?: 1
 
                 _uiState.update { current ->
-                    val lineToSet = if (!resetToFirstReadable && current.activeLine in 1..maxLines && lines.any { it.lineNumber == current.activeLine && it.isReadable }) {
-                        current.activeLine
-                    } else {
-                        firstReadable
+                    val savedLine = visitedLineByPage[safePage]
+                    val lineToSet = when {
+                        !resetToFirstReadable && savedLine != null && lines.any { it.lineNumber == savedLine && it.isReadable } -> savedLine
+                        !resetToFirstReadable && wasSamePage && current.activeLine in 1..maxLines && lines.any { it.lineNumber == current.activeLine && it.isReadable } -> current.activeLine
+                        else -> firstReadable
                     }
+                    visitedLineByPage[safePage] = lineToSet
                     current.copy(
                         isLoading = false,
                         currentPage = safePage,
@@ -170,7 +176,13 @@ class AlarmAlertViewModel(
                     )
                 }
                 checkCompletion()
+
+                // Asynchronously warm cache for adjacent pages without blocking UI
+                launch(ioDispatcher) {
+                    pageManager?.preloadPages(safePage, radius = 1)
+                }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e("AlarmAlertViewModel", "Error loading page $safePage: ${e.message}", e)
                 _uiState.update { it.copy(isLoading = false) }
             }
@@ -186,6 +198,7 @@ class AlarmAlertViewModel(
                 .minByOrNull { it.lineNumber }?.lineNumber
 
             if (allowDirectJump || lineNumber <= state.activeLine || lineNumber == nextReadable) {
+                visitedLineByPage[state.currentPage] = lineNumber
                 _uiState.update { it.copy(activeLine = lineNumber, stage = AlarmAlertStage.MUSHAF_READING) }
                 checkCompletion()
             }
@@ -202,13 +215,14 @@ class AlarmAlertViewModel(
             .minByOrNull { it.lineNumber }
 
         if (nextReadable != null) {
+            visitedLineByPage[state.currentPage] = nextReadable.lineNumber
             _uiState.update { it.copy(activeLine = nextReadable.lineNumber, stage = AlarmAlertStage.MUSHAF_READING) }
             checkCompletion()
         } else if (state.hasNextPageInWird) {
             // Mark current page as completed and advance to next page in wird
             val nextPage = state.wirdPages[state.pageIndexInWird + 1]
             _uiState.update { it.copy(completedPages = it.completedPages + state.currentPage, stage = AlarmAlertStage.MUSHAF_READING) }
-            loadPage(nextPage)
+            loadPage(nextPage, resetToFirstReadable = false)
         } else {
             // Reached last readable line of final wird page
             val updatedCompleted = state.completedPages + state.currentPage
@@ -224,7 +238,7 @@ class AlarmAlertViewModel(
         val state = _uiState.value
         if (state.hasPrevPageInWird) {
             val prevPage = state.wirdPages[state.pageIndexInWird - 1]
-            loadPage(prevPage)
+            loadPage(prevPage, resetToFirstReadable = false)
         }
     }
 
@@ -232,15 +246,21 @@ class AlarmAlertViewModel(
         val state = _uiState.value
         if (state.hasNextPageInWird) {
             val lastReadable = state.currentLines.filter { it.isReadable }.maxOfOrNull { it.lineNumber } ?: state.pageMaxLines
-            val updatedCompleted = if (state.activeLine >= lastReadable) {
+            val updatedCompleted = if (state.activeLine >= lastReadable || state.currentPage in state.completedPages) {
                 state.completedPages + state.currentPage
             } else {
                 state.completedPages
             }
             val nextPage = state.wirdPages[state.pageIndexInWird + 1]
             _uiState.update { it.copy(completedPages = updatedCompleted) }
-            loadPage(nextPage)
+            loadPage(nextPage, resetToFirstReadable = false)
         }
+    }
+
+    fun goToFirstIncompletePage() {
+        val state = _uiState.value
+        val incompletePage = state.wirdPages.firstOrNull { it !in state.completedPages } ?: return
+        loadPage(incompletePage, resetToFirstReadable = false)
     }
 
     private fun checkCompletion() {
@@ -272,7 +292,8 @@ class AlarmAlertViewModel(
 
     fun completeWird(onComplete: () -> Unit) {
         val state = _uiState.value
-        if (!state.isDismissEnabled) return
+        if (!state.isDismissEnabled || state.isDismissedOrSnoozed) return
+        _uiState.update { it.copy(isDismissedOrSnoozed = true) }
 
         viewModelScope.launch {
             withContext(ioDispatcher) {
@@ -286,13 +307,21 @@ class AlarmAlertViewModel(
                     }
                 }
             }
-            _uiState.update { it.copy(isDismissedOrSnoozed = true) }
             onComplete()
         }
     }
 
     fun snooze(minutes: Int = 5, onSnooze: () -> Unit) {
         val state = _uiState.value
+        if (state.isDismissedOrSnoozed) return
+        _uiState.update { it.copy(isDismissedOrSnoozed = true) }
+
+        // Preview mode uses negative sentinel IDs (e.g. -999): exit safely without persisting or scheduling
+        if (state.alarmId < 0) {
+            onSnooze()
+            return
+        }
+
         viewModelScope.launch {
             withContext(ioDispatcher) {
                 val snoozeTime = System.currentTimeMillis() + (minutes * 60_000L)
@@ -319,7 +348,6 @@ class AlarmAlertViewModel(
                 alarmRepository.saveAlarm(snoozeItem)
                 alarmScheduler.schedule(snoozeItem)
             }
-            _uiState.update { it.copy(isDismissedOrSnoozed = true) }
             onSnooze()
         }
     }

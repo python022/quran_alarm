@@ -24,6 +24,7 @@ class AyahInfoDatabase(
         const val ASSET_PATH = "quran/ayahinfo.db"
         const val DB_NAME = "ayahinfo.db"
         const val EXPECTED_DB_SIZE = 5_922_816L
+        private const val MIN_VALID_DB_SIZE = 1_000_000L
         const val DB_VERSION = 1
         private const val PREFS_NAME = "ayahinfo_db_prefs"
         private const val KEY_DB_VERSION = "db_version"
@@ -31,31 +32,69 @@ class AyahInfoDatabase(
         @Volatile
         private var instance: AyahInfoDatabase? = null
 
+        /**
+         * Uses Device-Protected Storage on API 24+ so Direct Boot alarms triggered before
+         * device unlock can safely open ayahinfo.db without throwing IllegalStateException.
+         */
+        fun resolveStorageContext(context: Context): Context {
+            val appContext = context.applicationContext ?: context
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
+                return appContext
+            }
+            val deviceContext = if (appContext.isDeviceProtectedStorage) {
+                appContext
+            } else {
+                appContext.createDeviceProtectedStorageContext()
+            }
+            try {
+                val userManager = appContext.getSystemService(Context.USER_SERVICE) as? android.os.UserManager
+                if (userManager?.isUserUnlocked == true) {
+                    deviceContext.moveSharedPreferencesFrom(appContext, PREFS_NAME)
+                    deviceContext.moveDatabaseFrom(appContext, DB_NAME)
+                }
+            } catch (_: Exception) {
+                // Storage locked or already migrated
+            }
+            return deviceContext
+        }
+
+        private fun hasSqliteHeader(file: File): Boolean {
+            if (!file.exists() || file.length() < MIN_VALID_DB_SIZE) return false
+            return try {
+                file.inputStream().use { input ->
+                    val magic = ByteArray(15)
+                    val read = input.read(magic)
+                    read == 15 && String(magic, Charsets.US_ASCII) == "SQLite format 3"
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
+
         suspend fun getInstanceAsync(context: Context): AyahInfoDatabase = withContext(Dispatchers.IO) {
-            val appContext = context.applicationContext
-            val targetFile = appContext.getDatabasePath(DB_NAME)
-            ensureExtracted(appContext, targetFile)
-            getInstance(appContext)
+            val storageContext = resolveStorageContext(context)
+            val targetFile = storageContext.getDatabasePath(DB_NAME)
+            ensureExtracted(storageContext, targetFile)
+            getInstance(storageContext)
         }
 
         fun getInstance(context: Context): AyahInfoDatabase {
             return instance ?: synchronized(this) {
                 instance ?: run {
-                    val appContext = context.applicationContext
-                    val targetFile = appContext.getDatabasePath(DB_NAME)
-                    AyahInfoDatabase(targetFile, appContext).also { instance = it }
+                    val storageContext = resolveStorageContext(context)
+                    val targetFile = storageContext.getDatabasePath(DB_NAME)
+                    AyahInfoDatabase(targetFile, storageContext).also { instance = it }
                 }
             }
         }
 
         @Synchronized
-        fun ensureExtracted(appContext: Context, targetFile: File) {
-            val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        fun ensureExtracted(context: Context, targetFile: File) {
+            val storageContext = resolveStorageContext(context)
+            val prefs = storageContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val installedVersion = prefs.getInt(KEY_DB_VERSION, -1)
 
-            val needsExtraction = !targetFile.exists() ||
-                    targetFile.length() != EXPECTED_DB_SIZE ||
-                    installedVersion != DB_VERSION
+            val needsExtraction = !hasSqliteHeader(targetFile) || installedVersion != DB_VERSION
 
             if (needsExtraction) {
                 targetFile.parentFile?.mkdirs()
@@ -63,12 +102,12 @@ class AyahInfoDatabase(
                 if (tmpFile.exists()) {
                     tmpFile.delete()
                 }
-                appContext.assets.open(ASSET_PATH).use { input ->
+                storageContext.assets.open(ASSET_PATH).use { input ->
                     FileOutputStream(tmpFile).use { output ->
                         input.copyTo(output)
                     }
                 }
-                if (tmpFile.length() == EXPECTED_DB_SIZE) {
+                if (hasSqliteHeader(tmpFile)) {
                     val renamed = tmpFile.renameTo(targetFile)
                     if (!renamed) {
                         tmpFile.copyTo(targetFile, overwrite = true)
@@ -78,7 +117,7 @@ class AyahInfoDatabase(
                 } else {
                     val actualLength = tmpFile.length()
                     tmpFile.delete()
-                    throw IllegalStateException("Failed to extract complete ayahinfo.db asset: got $actualLength bytes, expected $EXPECTED_DB_SIZE")
+                    throw IllegalStateException("Failed to extract valid ayahinfo.db asset (size=$actualLength bytes)")
                 }
             }
         }

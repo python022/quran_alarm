@@ -28,7 +28,8 @@ class QuranPageManager(
 
         fun getPageFileName(pageNumber: Int): String {
             val safePage = pageNumber.coerceIn(1, 604)
-            return String.format("page_%03d.webp", safePage)
+            val padded = safePage.toString().padStart(3, '0')
+            return "page_$padded.webp"
         }
     }
 
@@ -66,6 +67,7 @@ class QuranPageManager(
                 decodeBitmapFromStream(stream)
             }
         } catch (e: Exception) {
+            android.util.Log.e("QuranPageManager", "Failed to load page $safePage from $fileName: ${e.message}", e)
             null
         }
 
@@ -79,11 +81,14 @@ class QuranPageManager(
     }
 
     private fun decodeBitmapFromStream(stream: InputStream): Bitmap? {
+        val bytes = stream.readBytes()
+        if (bytes.isEmpty()) return null
         val options = BitmapFactory.Options().apply {
             inPreferredConfig = Bitmap.Config.RGB_565
             inSampleSize = 1
         }
-        return BitmapFactory.decodeStream(stream, null, options)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            ?: BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
 
     /**

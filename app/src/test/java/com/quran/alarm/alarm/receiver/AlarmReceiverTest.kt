@@ -87,6 +87,36 @@ class AlarmReceiverTest {
         assertFalse("One-shot alarm must be marked disabled after firing to prevent ghost alarms", saved!!.isEnabled)
     }
 
+    @Test
+    fun repeatingAlarm_withStaleFutureExplicitTrigger_recomputesNextScheduledOccurrence() {
+        val staleSnoozeTimestamp = System.currentTimeMillis() + 600_000L
+        val repeatingAlarm = AlarmItem(
+            id = 202,
+            hour = 5,
+            minute = 30,
+            repeatDays = setOf(
+                Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY,
+                Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY
+            ),
+            isEnabled = true,
+            explicitTriggerMillis = staleSnoozeTimestamp
+        )
+        fakeRepo.saveAlarm(repeatingAlarm)
+
+        val triggerIntent = Intent(AlarmReceiver.ACTION_TRIGGER_ALARM).apply {
+            putExtra(AlarmReceiver.EXTRA_ALARM_ID, 202)
+        }
+        receiver.onReceive(context, triggerIntent)
+
+        val refreshed = fakeRepo.getAlarmById(202)
+        assertNotNull(refreshed)
+        assertNotNull(refreshed!!.explicitTriggerMillis)
+        assertTrue(
+            "Stale explicitTriggerMillis must be replaced with true next repeating time",
+            refreshed.explicitTriggerMillis != staleSnoozeTimestamp
+        )
+    }
+
     private class FakeTestAlarmRepository : AlarmRepository {
         val alarms = mutableMapOf<Int, AlarmItem>()
         override fun getAllAlarms(): List<AlarmItem> = alarms.values.toList()

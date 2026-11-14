@@ -5,10 +5,11 @@ import android.database.ContentObserver
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 
 /**
- * Enforces maximum volume on [AudioManager.STREAM_ALARM] during alarm firing.
+ * Enforces configured volume on [AudioManager.STREAM_ALARM] during alarm firing.
  *
  * Listens to volume mutations via [ContentObserver] and immediately resets the
  * alarm stream to target volume if the user tries to lower it via volume keys or quick settings.
@@ -18,14 +19,16 @@ import android.provider.Settings
  */
 class VolumeEnforcer(
     private val context: Context,
-    private val handler: Handler? = null,
+    private val handler: Handler? = runCatching { Handler(Looper.getMainLooper()) }.getOrNull(),
     private val audioManagerProvider: () -> AudioManager? = {
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     }
 ) {
+    @Volatile
     var isEnforcing: Boolean = false
         private set
 
+    @Volatile
     var targetVolumePercent: Int = 100
         private set
 
@@ -36,9 +39,15 @@ class VolumeEnforcer(
         object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 super.onChange(selfChange, uri)
-                if (isEnforcing && !isSelfVolumeChange) {
-                    enforceTargetVolume()
+                if (!isEnforcing || isSelfVolumeChange) return
+                // Filter out unrelated system settings changes (brightness, rotation, etc.)
+                val segment = uri?.lastPathSegment
+                if (segment != null && uri != Settings.System.CONTENT_URI &&
+                    !segment.contains("volume", ignoreCase = true)
+                ) {
+                    return
                 }
+                enforceTargetVolume()
             }
         }
     }

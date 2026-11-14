@@ -80,11 +80,9 @@ class AlarmViewModel(
             val updated = alarm.copy(
                 isEnabled = isEnabled,
                 explicitTriggerMillis = if (isEnabled && alarm.repeatDays.isEmpty()) {
-                    alarm.getNextTriggerMillis()
-                } else if (!isEnabled) {
-                    null
+                    alarm.copy(explicitTriggerMillis = null).getNextTriggerMillis()
                 } else {
-                    alarm.explicitTriggerMillis
+                    null
                 }
             )
             withContext(ioDispatcher) {

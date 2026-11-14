@@ -74,33 +74,61 @@ object AlarmUiFormatters {
         return orderedDays.filter { repeatDays.contains(it) }.mapNotNull { dayNames[it] }.joinToString("، ")
     }
 
-    fun formatNextAlarmCountdown(triggerMillis: Long, fromMillis: Long = System.currentTimeMillis()): String {
-        val diffMs = triggerMillis - fromMillis
-        if (diffMs <= 0) return "المنبه الآن"
+    val DAY_NAMES = mapOf(
+        Calendar.SATURDAY to "السبت",
+        Calendar.SUNDAY to "الأحد",
+        Calendar.MONDAY to "الاثنين",
+        Calendar.TUESDAY to "الثلاثاء",
+        Calendar.WEDNESDAY to "الأربعاء",
+        Calendar.THURSDAY to "الخميس",
+        Calendar.FRIDAY to "الجمعة"
+    )
 
-        val totalMinutes = (diffMs / 60_000L).toInt()
+    fun getDayName(dayOfWeek: Int): String? = DAY_NAMES[dayOfWeek]
+
+    fun formatNextAlarmCountdown(
+        triggerMillis: Long,
+        fromMillis: Long = System.currentTimeMillis(),
+        targetDayName: String? = null
+    ): String {
+        if (triggerMillis <= fromMillis) return "المنبه الآن"
+
+        val fromCal = Calendar.getInstance().apply {
+            timeInMillis = fromMillis
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val triggerCal = Calendar.getInstance().apply {
+            timeInMillis = triggerMillis
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        val cleanDiffMs = triggerCal.timeInMillis - fromCal.timeInMillis
+        val totalMinutes = if (cleanDiffMs > 0) {
+            (cleanDiffMs / 60_000L).toInt()
+        } else {
+            0
+        }
+
         val hours = totalMinutes / 60
         val minutes = totalMinutes % 60
 
+        val prefix = if (!targetDayName.isNullOrBlank()) "المنبه يوم $targetDayName خلال" else "المنبه خلال"
+
         return when {
-            hours == 0 && minutes <= 1 -> "المنبه خلال أقل من دقيقة"
-            hours == 0 -> "المنبه خلال $minutes دقيقة"
-            minutes == 0 -> "المنبه خلال $hours ساعة"
-            else -> "المنبه خلال $hours ساعة و $minutes دقيقة"
+            hours == 0 && totalMinutes == 0 -> "$prefix أقل من دقيقة"
+            hours == 0 && totalMinutes == 1 -> "$prefix دقيقة واحدة"
+            hours == 0 && totalMinutes == 2 -> "$prefix دقيقتين"
+            hours == 0 -> "$prefix $minutes دقيقة"
+            minutes == 0 -> "$prefix $hours ساعة"
+            else -> "$prefix $hours ساعة و $minutes دقيقة"
         }
     }
 
     fun formatCurrentDate(timeMillis: Long = System.currentTimeMillis()): String {
         val cal = Calendar.getInstance().apply { this.timeInMillis = timeMillis }
-        val dayNames = mapOf(
-            Calendar.SATURDAY to "السبت",
-            Calendar.SUNDAY to "الأحد",
-            Calendar.MONDAY to "الاثنين",
-            Calendar.TUESDAY to "الثلاثاء",
-            Calendar.WEDNESDAY to "الأربعاء",
-            Calendar.THURSDAY to "الخميس",
-            Calendar.FRIDAY to "الجمعة"
-        )
+        val dayNames = DAY_NAMES
         val monthNames = arrayOf(
             "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
             "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"

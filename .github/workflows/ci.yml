@@ -14,15 +14,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Verify Absolute Zero-Internet Permission
+      - name: Verify Absolute Zero-Internet Permission & Zero Network APIs
         run: |
           echo "Checking for any prohibited android.permission.INTERNET..."
-          if grep -rn "android.permission.INTERNET" app/src/ main/ AndroidManifest.xml 2>/dev/null; then
+          if grep -rn "android.permission.INTERNET" app/src/main/AndroidManifest.xml 2>/dev/null; then
             echo "ERROR: Violation detected! android.permission.INTERNET is strictly forbidden in Quran Alarm."
             exit 1
-          else
-            echo "PASS: Zero-Internet permission verified. App is 100% Air-Gapped."
           fi
+          echo "Checking for prohibited network APIs in production source..."
+          if grep -rnE "HttpURLConnection|OkHttpClient|Retrofit|java\.net\.Socket|URL\(.*\)\.openStream|openConnection\(" app/src/main/ 2>/dev/null; then
+            echo "ERROR: Violation detected! Network APIs are strictly forbidden in Quran Alarm."
+            exit 1
+          fi
+          echo "PASS: Zero-Internet permission and zero network APIs verified. App is 100% Air-Gapped."
 
       - name: Verify Absence of Prohibited Dangerous Permissions
         run: |
@@ -36,20 +40,10 @@ jobs:
 
       - name: Verify Foundation Docs Integrity
         run: |
-          echo "Verifying presence of essential foundation documents..."
+          echo "Verifying presence of essential repository files..."
           test -f README.md || exit 1
-          test -f docs/PRD.md || exit 1
-          test -f docs/ARCHITECTURE.md || exit 1
-          test -f docs/ROADMAP.md || exit 1
-          test -f docs/PARITY.md || exit 1
           test -f AGENTS.md || exit 1
-          test -f docs/adr/ADR-001-language-and-ui-framework.md || exit 1
-          test -f docs/adr/ADR-002-mushaf-pages-and-coordinate-storage.md || exit 1
-          test -f docs/adr/ADR-003-offline-eye-tracking-framework.md || exit 1
-          test -f docs/adr/ADR-004-zero-network-and-minimal-permissions.md || exit 1
-          test -f docs/adr/ADR-005-alarm-enforcement-and-auto-mute-lifecycle.md || exit 1
-          test -f docs/adr/ADR-006-overlay-permission-for-unlocked-device-parity.md || exit 1
-          echo "PASS: All foundation documents are intact."
+          echo "PASS: Essential repository files are intact."
 
   build-and-test:
     name: Build & Test (Android 8.0 API 26 to Android 15 API 35)

@@ -522,6 +522,206 @@ class AlarmAlertViewModelTest {
         assertEquals(AlarmAlertStage.MUSHAF_READING, viewModel.uiState.value.stage)
     }
 
+    @Test
+    fun testCanNavigateNextInAlertRequiresCurrentPageCompletion() = runTest {
+        viewModel.initialize(
+            alarmId = 15,
+            alarmLabel = "Test Alert Nav",
+            rawStartPage = 10,
+            rawPageCount = 2
+        )
+        advanceUntilIdle()
+
+        // Page 10 has 15 lines. Currently at line 1.
+        val state1 = viewModel.uiState.value
+        assertEquals(10, state1.currentPage)
+        assertEquals(1, state1.activeLine)
+        assertTrue(state1.hasNextPageInWird)
+        assertFalse("Cannot navigate next until all lines on page 10 are read", state1.canNavigateNextInAlert)
+
+        // Read through lines up to line 15
+        for (i in 2..15) {
+            viewModel.advanceToNextLineOrPage()
+            advanceUntilIdle()
+        }
+
+        val stateEndPage10 = viewModel.uiState.value
+        assertEquals(15, stateEndPage10.activeLine)
+        assertTrue("Must be allowed to navigate next once last line is reached", stateEndPage10.canNavigateNextInAlert)
+
+        // Navigate to page 11
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+        assertEquals(11, viewModel.uiState.value.currentPage)
+        assertTrue("Page 10 recorded in completedPages", 10 in viewModel.uiState.value.completedPages)
+
+        // Navigate back to page 10
+        viewModel.goToPreviousPage()
+        advanceUntilIdle()
+        assertEquals(10, viewModel.uiState.value.currentPage)
+        // Even if activeLine reset, page 10 is already completed, so can navigate forward
+        assertTrue("Can navigate next because page 10 was already completed", viewModel.uiState.value.canNavigateNextInAlert)
+    }
+
+    @Test
+    fun testGoToNextPage_doesNotMarkCurrentPageCompletedIfUnread() = runTest {
+        viewModel.initialize(
+            alarmId = 16,
+            alarmLabel = "Test Unread Next",
+            rawStartPage = 20,
+            rawPageCount = 2
+        )
+        advanceUntilIdle()
+
+        // Line 1 of page 20, page is not completed
+        assertEquals(20, viewModel.uiState.value.currentPage)
+        assertFalse(viewModel.uiState.value.canNavigateNextInAlert)
+
+        // Advancing directly without reading leaves page 20 out of completedPages
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+        assertEquals(21, viewModel.uiState.value.currentPage)
+        assertFalse("Page 20 must not be in completedPages because lines were not completed", 20 in viewModel.uiState.value.completedPages)
+    }
+
+    @Test
+    fun testFinalLineOfFinalPage_guaranteesWirdCompletionAndDismissEnabled() = runTest {
+        viewModel.initialize(
+            alarmId = 17,
+            alarmLabel = "Test Multi-Page Completion",
+            rawStartPage = 30,
+            rawPageCount = 2
+        )
+        advanceUntilIdle()
+        viewModel.startReadingWird()
+
+        // Page 30: lines 1 to 15
+        for (i in 2..15) {
+            viewModel.advanceToNextLineOrPage()
+            advanceUntilIdle()
+        }
+        assertEquals(15, viewModel.uiState.value.activeLine)
+        assertFalse("Page 30 is not the last page, so wird is not yet completed", viewModel.uiState.value.isWirdCompleted)
+
+        // Advance to page 31
+        viewModel.advanceToNextLineOrPage()
+        advanceUntilIdle()
+        assertEquals(31, viewModel.uiState.value.currentPage)
+        assertTrue(30 in viewModel.uiState.value.completedPages)
+
+        // Page 31: lines 1 to 15
+        for (i in 2..15) {
+            viewModel.advanceToNextLineOrPage()
+            advanceUntilIdle()
+        }
+        assertEquals(15, viewModel.uiState.value.activeLine)
+
+        // Immediately upon reaching final line of final page:
+        val finalState = viewModel.uiState.value
+        assertTrue("isWirdCompleted must be guaranteed true on final line of final page", finalState.isWirdCompleted)
+        assertTrue("isDismissEnabled must be true when in MUSHAF_READING and wird completed", finalState.isDismissEnabled)
+
+        // Dismissal callback must execute
+        var completedFired = false
+        viewModel.completeWird { completedFired = true }
+        advanceUntilIdle()
+        assertTrue("completeWird must successfully invoke onComplete callback", completedFired)
+    }
+
+    @Test
+    fun testSinglePageWird_reachesEnd_guaranteesCompletion() = runTest {
+        viewModel.initialize(
+            alarmId = 18,
+            alarmLabel = "Test Single Page Completion",
+            rawStartPage = 10,
+            rawPageCount = 1
+        )
+        advanceUntilIdle()
+        viewModel.startReadingWird()
+
+        // Page 10 lines 1 to 15
+        for (i in 2..15) {
+            viewModel.advanceToNextLineOrPage()
+            advanceUntilIdle()
+        }
+        val state = viewModel.uiState.value
+        assertEquals(15, state.activeLine)
+        assertTrue("Single-page wird must be completed on last line", state.isWirdCompleted)
+        assertTrue("Single-page wird dismissal must be enabled", state.isDismissEnabled)
+    }
+
+    @Test
+    fun testPreviewModeSnooze_negativeAlarmId_exitsSafelyWithoutPersistingOrCrashing() = runTest {
+        viewModel.initialize(
+            alarmId = -999,
+            alarmLabel = "معاينة منبه الورد القرآني",
+            rawStartPage = 1,
+            rawPageCount = 1,
+            isSnoozeEnabled = true
+        )
+        advanceUntilIdle()
+
+        var snoozeCallbackInvoked = false
+        viewModel.snooze(minutes = 5) {
+            snoozeCallbackInvoked = true
+        }
+        advanceUntilIdle()
+
+        assertTrue("Preview snooze callback must fire cleanly", snoozeCallbackInvoked)
+        assertTrue("State must mark isDismissedOrSnoozed", viewModel.uiState.value.isDismissedOrSnoozed)
+        assertTrue("Preview mode must never persist fake negative alarm IDs", fakeAlarmRepo.alarms.isEmpty())
+        assertTrue("Preview mode must never schedule alarms", fakeAlarmScheduler.scheduled.isEmpty())
+    }
+
+    @Test
+    fun testCompleteWird_clearsStaleExplicitTriggerMillisOnRepeatingAlarm() = runTest {
+        val snoozedRepeatingAlarm = AlarmItem(
+            id = 60,
+            hour = 5,
+            minute = 0,
+            repeatDays = setOf(Calendar.SUNDAY, Calendar.MONDAY),
+            isEnabled = true,
+            startPage = 10,
+            pageCount = 1,
+            explicitTriggerMillis = System.currentTimeMillis() + 300_000L
+        )
+        fakeAlarmRepo.saveAlarm(snoozedRepeatingAlarm)
+
+        viewModel.initialize(alarmId = 60, alarmLabel = "Wird", rawStartPage = 10, rawPageCount = 1)
+        advanceUntilIdle()
+        viewModel.startReadingWird()
+        viewModel.onLineClicked(15, allowDirectJump = true)
+        advanceUntilIdle()
+
+        viewModel.completeWird {}
+        advanceUntilIdle()
+
+        val saved = fakeAlarmRepo.getAlarmById(60)
+        assertNotNull(saved)
+        assertEquals(11, saved!!.startPage)
+        assertEquals("Stale snooze timestamp must be cleared on completion", null, saved.explicitTriggerMillis)
+    }
+
+    @Test
+    fun testGoToFirstIncompletePage_returnsToUnreadPriorPage() = runTest {
+        viewModel.initialize(alarmId = 71, alarmLabel = "Wird", rawStartPage = 10, rawPageCount = 3)
+        advanceUntilIdle()
+
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+        viewModel.goToNextPage()
+        advanceUntilIdle()
+        assertEquals(12, viewModel.uiState.value.currentPage)
+
+        viewModel.onLineClicked(15, allowDirectJump = true)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.isDismissEnabled)
+
+        viewModel.goToFirstIncompletePage()
+        advanceUntilIdle()
+        assertEquals("Should jump back to first unread page (10)", 10, viewModel.uiState.value.currentPage)
+    }
+
     // Fake implementations for testing
     private class FakeLineBoundsRepository : LineBoundsRepository {
         override suspend fun getLinesForPage(pageNumber: Int): List<LineRect> {

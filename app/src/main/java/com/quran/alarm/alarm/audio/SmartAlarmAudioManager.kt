@@ -41,8 +41,11 @@ enum class AudioPlaybackState {
  */
 class SmartAlarmAudioManager(
     private val context: Context,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main + Job())
+    externalScope: CoroutineScope? = null
 ) {
+    private val ownedJob: Job? = if (externalScope == null) Job() else null
+    private val scope: CoroutineScope = externalScope ?: CoroutineScope(Dispatchers.Main + ownedJob!!)
+    private var fallbackAttempted = false
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var mediaPlayer: MediaPlayer? = null
@@ -79,6 +82,9 @@ class SmartAlarmAudioManager(
      * Starts alarm playback at user-configured volume on the ALARM stream.
      */
     fun startAlarm(customToneUri: Uri? = null, volumeLevel: Int = 100) {
+        if (customToneUri != null) {
+            fallbackAttempted = false
+        }
         stopAlarm()
         requestAudioFocus()
         targetVolumePercent = volumeLevel.coerceIn(1, 100)
@@ -108,61 +114,69 @@ class SmartAlarmAudioManager(
                 isLooping = true
                 setVolume(1.0f, 1.0f)
                 setOnErrorListener { _, _, _ ->
-                    // If custom tone playback encounters an error, fallback to default alarm first
-                    if (customToneUri != null) {
-                        try {
-                            val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                            if (defaultUri != null && defaultUri != customToneUri) {
-                                startAlarm(customToneUri = null, volumeLevel = targetVolumePercent)
-                                return@setOnErrorListener true
-                            }
-                        } catch (_: Exception) {}
+                    if (!fallbackFromCustomTone(customToneUri, targetVolumePercent)) {
+                        fallbackToToneGenerator()
                     }
-                    fallbackToToneGenerator()
                     true
                 }
                 setOnPreparedListener { mp ->
                     try {
                         mp.start()
-                    } catch (e: Exception) {
-                        if (customToneUri != null) {
-                            try {
-                                val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                                if (defaultUri != null && defaultUri != customToneUri) {
-                                    startAlarm(customToneUri = null, volumeLevel = targetVolumePercent)
-                                    return@setOnPreparedListener
-                                }
-                            } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                        if (!fallbackFromCustomTone(customToneUri, targetVolumePercent)) {
+                            fallbackToToneGenerator()
                         }
-                        fallbackToToneGenerator()
                     }
                 }
                 prepareAsync()
             }
             currentVolume = 1.0f
             _playbackState.value = AudioPlaybackState.BLARING
-        } catch (e: Exception) {
-            // If custom tone failed to open, try falling back to system default alarm before ToneGenerator
-            if (customToneUri != null) {
-                try {
-                    val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                    if (defaultUri != null && defaultUri != customToneUri) {
-                        startAlarm(customToneUri = null, volumeLevel = volumeLevel)
-                        return
-                    }
-                } catch (_: Exception) {}
+        } catch (_: Exception) {
+            if (!fallbackFromCustomTone(customToneUri, volumeLevel)) {
+                fallbackToToneGenerator()
             }
-            fallbackToToneGenerator()
         }
+    }
+
+    private fun fallbackFromCustomTone(customToneUri: Uri?, volumeLevel: Int): Boolean {
+        if (customToneUri == null || fallbackAttempted) return false
+        fallbackAttempted = true
+        return try {
+            val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            if (defaultUri != null && defaultUri != customToneUri) {
+                startAlarm(customToneUri = null, volumeLevel = volumeLevel)
+                true
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Dynamically updates the volume on the active MediaPlayer without interrupting playback.
+     */
+    fun updateVolume(volumeLevel: Int) {
+        targetVolumePercent = volumeLevel.coerceIn(1, 100)
+        val vol = (targetVolumePercent / 100f)
+        currentVolume = vol
+        try {
+            mediaPlayer?.setVolume(vol, vol)
+        } catch (_: Exception) {}
     }
 
     /**
      * Previews a selected sound without looping, on STREAM_MUSIC or STREAM_ALARM.
      */
-    fun previewSound(soundUriString: String?, volumeLevel: Int = 80, onComplete: () -> Unit = {}) {
+    fun previewSound(
+        soundUriString: String?,
+        volumeLevel: Int = 80,
+        durationMs: Long? = null,
+        onComplete: () -> Unit = {}
+    ) {
         stopAlarm()
         val uri = resolveSoundUri(soundUriString)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
@@ -185,6 +199,7 @@ class SmartAlarmAudioManager(
                 isLooping = false
                 val vol = (volumeLevel.coerceIn(1, 100) / 100f)
                 setVolume(vol, vol)
+                currentVolume = vol
                 setOnCompletionListener {
                     stopAlarm()
                     onComplete()
@@ -196,6 +211,16 @@ class SmartAlarmAudioManager(
                 }
                 setOnPreparedListener { mp ->
                     mp.start()
+                    _playbackState.value = AudioPlaybackState.BLARING
+                    if (durationMs != null && durationMs > 0) {
+                        scope.launch {
+                            delay(durationMs)
+                            if (mediaPlayer == mp) {
+                                stopAlarm()
+                                onComplete()
+                            }
+                        }
+                    }
                 }
                 prepareAsync()
             }
@@ -292,6 +317,14 @@ class SmartAlarmAudioManager(
         currentVolume = 0.0f
         abandonAudioFocus()
         _playbackState.value = AudioPlaybackState.STOPPED
+    }
+
+    /**
+     * Releases all audio resources and cancels any internally created coroutine scope.
+     */
+    fun destroy() {
+        stopAlarm()
+        ownedJob?.cancel()
     }
 
     private fun requestAudioFocus() {

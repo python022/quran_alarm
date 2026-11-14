@@ -16,6 +16,11 @@ import android.media.ToneGenerator
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.core.content.ContextCompat
+import com.quran.alarm.alarm.service.AlarmAlertIntentFactory
+import com.quran.alarm.alarm.service.AlarmForegroundService
+import com.quran.alarm.ui.AlarmAlertActivity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.quran.alarm.alarm.audio.SmartAlarmAudioManager
@@ -100,6 +105,7 @@ import java.util.Calendar
 @Composable
 fun AddAlarmDialog(
     alarmToEdit: AlarmItem? = null,
+    existingAlarmIds: Set<Int> = emptySet(),
     onDismiss: () -> Unit,
     onSave: (AlarmItem) -> Unit
 ) {
@@ -115,24 +121,48 @@ fun AddAlarmDialog(
     var repeatDays by remember {
         mutableStateOf(
             alarmToEdit?.repeatDays ?: setOf(
-                Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY
+                Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
+                Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY
             )
         )
     }
     var isVibrate by remember { mutableStateOf(alarmToEdit?.isVibrationEnabled ?: true) }
     var label by remember { mutableStateOf(alarmToEdit?.label ?: "صلاة الفجر والورد القرآني") }
 
-    // Multi-modal Wird selection
-    var selectionMode by remember { mutableStateOf(WirdSelectionMode.SURAHS) }
-    var selectedStartSurah by remember { mutableIntStateOf(QuranStructure.getSurahAtPage(alarmToEdit?.startPage ?: 2).number) }
-    var selectedEndSurah by remember { mutableIntStateOf(QuranStructure.getLastSurahAtPage(alarmToEdit?.endPage ?: 6).number) }
+    // Multi-modal Wird selection (defaults to PAGES)
+    var selectionMode by remember {
+        mutableStateOf(
+            if (alarmToEdit != null) {
+                val sSurah = QuranStructure.getSurahAtPage(alarmToEdit.startPage)
+                val eSurah = QuranStructure.getLastSurahAtPage(alarmToEdit.endPage)
+                if (sSurah.startPage == alarmToEdit.startPage && eSurah.endPage == alarmToEdit.endPage) {
+                    WirdSelectionMode.SURAHS
+                } else {
+                    WirdSelectionMode.PAGES
+                }
+            } else {
+                WirdSelectionMode.PAGES
+            }
+        )
+    }
+    var selectedStartSurah by remember { mutableIntStateOf(QuranStructure.getSurahAtPage(alarmToEdit?.startPage ?: 1).number) }
+    var selectedEndSurah by remember {
+        mutableIntStateOf(
+            if (alarmToEdit != null) QuranStructure.getLastSurahAtPage(alarmToEdit.endPage).number
+            else QuranStructure.getSurahAtPage(alarmToEdit?.startPage ?: 1).number
+        )
+    }
     var selectedStartHizb by remember { mutableIntStateOf(QuranStructure.getHizbAtPage(alarmToEdit?.startPage ?: 1)) }
-    var selectedEndHizb by remember { mutableIntStateOf(QuranStructure.getHizbAtPage(alarmToEdit?.endPage ?: 2)) }
+    var selectedEndHizb by remember { mutableIntStateOf(QuranStructure.getHizbAtPage(alarmToEdit?.endPage ?: 1)) }
     var selectedStartJuz by remember { mutableIntStateOf(QuranStructure.getJuzAtPage(alarmToEdit?.startPage ?: 1)) }
     var selectedEndJuz by remember { mutableIntStateOf(QuranStructure.getJuzAtPage(alarmToEdit?.endPage ?: 1)) }
 
-    var startPage by remember { mutableIntStateOf(alarmToEdit?.startPage ?: 2) }
-    var endPage by remember { mutableIntStateOf(alarmToEdit?.endPage ?: 6) }
+    var startPage by remember {
+        mutableIntStateOf(alarmToEdit?.startPage ?: 1)
+    }
+    var endPage by remember {
+        mutableIntStateOf(alarmToEdit?.endPage ?: 1)
+    }
 
     var showStartSurahPicker by remember { mutableStateOf(false) }
     var showEndSurahPicker by remember { mutableStateOf(false) }
@@ -172,10 +202,14 @@ fun AddAlarmDialog(
         isPlayingPreview = false
     }
 
-    fun playPreview(uriStr: String?) {
+    fun playPreview(uriStr: String?, isShort: Boolean = false) {
         stopPreview()
         isPlayingPreview = true
-        audioManager.previewSound(uriStr, volumeLevel = volumeLevel.toInt()) {
+        audioManager.previewSound(
+            soundUriString = uriStr,
+            volumeLevel = volumeLevel.toInt(),
+            durationMs = if (isShort) 2000L else null
+        ) {
             isPlayingPreview = false
         }
     }
@@ -183,6 +217,7 @@ fun AddAlarmDialog(
     DisposableEffect(Unit) {
         onDispose {
             stopPreview()
+            audioManager.destroy()
         }
     }
 
@@ -266,12 +301,68 @@ fun AddAlarmDialog(
         },
         containerColor = Color(0xFF1E293B),
         title = {
-            Text(
-                text = if (isEditMode) "تعديل منبه الورد القرآني" else "ضبط منبه الورد القرآني",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isEditMode) "تعديل منبه الورد القرآني" else "ضبط منبه الورد القرآني",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                OutlinedButton(
+                    onClick = {
+                        stopPreview()
+                        val previewServiceIntent = AlarmAlertIntentFactory.buildStartServiceIntent(
+                            context = context,
+                            alarmId = -999,
+                            label = "معاينة منبه الورد القرآني",
+                            targetPage = 1,
+                            startPage = 1,
+                            pageCount = 1,
+                            volumeLevel = volumeLevel.toInt(),
+                            isVibrate = isVibrate,
+                            soundUri = selectedSoundUri
+                        )
+                        try {
+                            ContextCompat.startForegroundService(context, previewServiceIntent)
+                        } catch (_: Exception) {}
+
+                        val previewAlertIntent = AlarmAlertIntentFactory.buildAlertIntent(
+                            context = context,
+                            alarmId = -999,
+                            label = "معاينة منبه الورد القرآني",
+                            targetPage = 1,
+                            startPage = 1,
+                            pageCount = 1,
+                            isSnoozeEnabled = true,
+                            isFreshTrigger = true
+                        ).apply {
+                            putExtra(AlarmForegroundService.EXTRA_VOLUME_LEVEL, volumeLevel.toInt())
+                            putExtra(AlarmForegroundService.EXTRA_IS_VIBRATE, isVibrate)
+                            putExtra(AlarmForegroundService.EXTRA_SOUND_URI, selectedSoundUri)
+                        }
+                        try {
+                            context.startActivity(previewAlertIntent)
+                        } catch (_: Exception) {}
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Text(
+                        text = "معاينة",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         },
         text = {
             Column(
@@ -299,8 +390,18 @@ fun AddAlarmDialog(
                 // Live Alarm Countdown Text
                 val current24 = AlarmUiFormatters.toHour24(hour12, isAm)
                 val previewAlarm = AlarmItem(id = 0, hour = current24, minute = minute, repeatDays = repeatDays)
+                val nextTriggerMillis = previewAlarm.getNextTriggerMillis()
+                val targetDayName = if (repeatDays.isNotEmpty() && repeatDays.size < 7) {
+                    val targetCal = Calendar.getInstance().apply { timeInMillis = nextTriggerMillis }
+                    AlarmUiFormatters.getDayName(targetCal.get(Calendar.DAY_OF_WEEK))
+                } else {
+                    null
+                }
                 Text(
-                    text = "⏰ " + AlarmUiFormatters.formatNextAlarmCountdown(previewAlarm.getNextTriggerMillis()),
+                    text = "⏰ " + AlarmUiFormatters.formatNextAlarmCountdown(
+                        triggerMillis = nextTriggerMillis,
+                        targetDayName = targetDayName
+                    ),
                     fontSize = 12.sp,
                     color = Color(0xFF10B981),
                     textAlign = TextAlign.Center,
@@ -690,18 +791,14 @@ fun AddAlarmDialog(
                     value = volumeLevel,
                     onValueChange = { newVol ->
                         volumeLevel = newVol
+                        if (isPlayingPreview) {
+                            audioManager.updateVolume(newVol.toInt())
+                        }
                     },
                     onValueChangeFinished = {
-                        try {
-                            val tone = ToneGenerator(AudioManager.STREAM_ALARM, volumeLevel.toInt())
-                            tone.startTone(ToneGenerator.TONE_PROP_BEEP, 80)
-                            // Safely release native AudioTrack after sound finishes to prevent AudioTrack leak
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                try {
-                                    tone.release()
-                                } catch (_: Exception) {}
-                            }, 250)
-                        } catch (_: Exception) {}
+                        if (!isPlayingPreview) {
+                            playPreview(selectedSoundUri, isShort = true)
+                        }
                     },
                     valueRange = 10f..100f,
                     colors = SliderDefaults.colors(
@@ -804,7 +901,7 @@ fun AddAlarmDialog(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "النغمات المدمجة المتاحة:",
+                            text = "النغمات المتاحة:",
                             fontSize = 12.sp,
                             color = Color(0xFF94A3B8)
                         )
@@ -849,11 +946,20 @@ fun AddAlarmDialog(
                                         documentPickerLauncher.launch(arrayOf("audio/*"))
                                     } catch (_: Exception) {}
                                 },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8))
                             ) {
-                                Text("ملف صوتي من الجهاز", fontSize = 11.sp)
+                                Text(
+                                    text = "ملف من الجهاز",
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    textAlign = TextAlign.Center
+                                )
                             }
 
                             OutlinedButton(
@@ -869,11 +975,20 @@ fun AddAlarmDialog(
                                         ringtonePickerLauncher.launch(intent)
                                     } catch (_: Exception) {}
                                 },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8))
                             ) {
-                                Text("نغمات الهاتف", fontSize = 11.sp)
+                                Text(
+                                    text = "نغمات الهاتف",
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
@@ -918,19 +1033,72 @@ fun AddAlarmDialog(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                FlowRow(
+                val row1Days = remember { daysList.take(4) }
+                val row2Days = remember { daysList.drop(4) }
+
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    daysList.forEach { (dayConst, dayName) ->
-                        val selected = repeatDays.contains(dayConst)
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                repeatDays = if (selected) repeatDays - dayConst else repeatDays + dayConst
-                            },
-                            label = { Text(dayName, fontSize = 11.sp) }
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        row1Days.forEach { (dayConst, dayName) ->
+                            val selected = repeatDays.contains(dayConst)
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    repeatDays = if (selected) repeatDays - dayConst else repeatDays + dayConst
+                                },
+                                modifier = Modifier.weight(1f),
+                                label = {
+                                    Text(
+                                        text = dayName,
+                                        fontSize = 11.sp,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF10B981).copy(alpha = 0.25f),
+                                    selectedLabelColor = Color(0xFF10B981),
+                                    containerColor = Color(0xFF1E293B),
+                                    labelColor = Color(0xFF94A3B8)
+                                )
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        row2Days.forEach { (dayConst, dayName) ->
+                            val selected = repeatDays.contains(dayConst)
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    repeatDays = if (selected) repeatDays - dayConst else repeatDays + dayConst
+                                },
+                                modifier = Modifier.weight(1f),
+                                label = {
+                                    Text(
+                                        text = dayName,
+                                        fontSize = 11.sp,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF10B981).copy(alpha = 0.25f),
+                                    selectedLabelColor = Color(0xFF10B981),
+                                    containerColor = Color(0xFF1E293B),
+                                    labelColor = Color(0xFF94A3B8)
+                                )
+                            )
+                        }
                     }
                 }
 
@@ -938,7 +1106,7 @@ fun AddAlarmDialog(
 
                 // 5. Preset Label Chips
                 Text(
-                    text = "تسمية المنبه السريعة",
+                    text = "تسمية المنبه",
                     fontSize = 13.sp,
                     color = Color(0xFF94A3B8)
                 )
@@ -999,9 +1167,8 @@ fun AddAlarmDialog(
             Button(
                 onClick = {
                     stopPreview()
-                    syncPagesToMode(selectionMode)
                     val final24Hour = AlarmUiFormatters.toHour24(hour12, isAm)
-                    val idToSave = alarmToEdit?.id ?: (System.currentTimeMillis() % 100000).toInt()
+                    val idToSave = alarmToEdit?.id ?: generateSafeAlarmId(existingAlarmIds)
                     val finalPageCount = if (endPage >= startPage) {
                         endPage - startPage + 1
                     } else {
@@ -1131,393 +1298,12 @@ fun AddAlarmDialog(
     }
 }
 
-@Composable
-fun SurahSearchPickerDialog(
-    title: String,
-    onDismiss: () -> Unit,
-    onSelectSurah: (SurahInfo) -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    val filteredSurahs = remember(searchQuery) {
-        if (searchQuery.isBlank()) {
-            QuranStructure.SURAHS
-        } else {
-            val q = searchQuery.trim()
-            QuranStructure.SURAHS.filter {
-                it.nameArabic.contains(q) ||
-                it.number.toString().contains(q) ||
-                it.startPage.toString().contains(q)
-            }
-        }
+private fun generateSafeAlarmId(existingAlarmIds: Set<Int>): Int {
+    val startCandidate = ((System.currentTimeMillis() % 99_999L).toInt()).coerceAtLeast(1)
+    var candidate = startCandidate
+    repeat(99_999) {
+        if (candidate !in existingAlarmIds) return candidate
+        candidate = (candidate % 99_999) + 1
     }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E293B),
-        title = {
-            Text(
-                text = title,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                fontSize = 16.sp
-            )
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().height(360.dp)) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("ابحث باسم السورة أو رقمها...", fontSize = 12.sp, color = Color(0xFF64748B)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color(0xFF10B981),
-                        unfocusedBorderColor = Color(0xFF334155)
-                    )
-                )
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(filteredSurahs, key = { it.number }) { surah ->
-                        Surface(
-                            onClick = {
-                                onSelectSurah(surah)
-                                onDismiss()
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF0F172A),
-                            modifier = Modifier.fillMaxWidth().height(44.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${surah.number}. سورة ${surah.nameArabic}",
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = "ص ${surah.startPage}",
-                                    color = Color(0xFF38BDF8),
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("إغلاق", color = Color(0xFF94A3B8))
-            }
-        }
-    )
-}
-
-@Composable
-fun ModernIslamicTimePickerCard(
-    hour12: Int,
-    minute: Int,
-    isAm: Boolean,
-    onHourChange: (Int) -> Unit,
-    onMinuteChange: (Int) -> Unit,
-    onAmPmToggle: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.35f))
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            val timeBadge = when {
-                isAm && hour12 in 3..6 -> "🌅 وقت السحر وصلاة الفجر"
-                isAm -> "☀️ صباحاً"
-                hour12 >= 9 || hour12 in 1..2 -> "🌙 ثلث الليل الآخر (قيام الليل)"
-                else -> "🌆 مساءً"
-            }
-
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF1E293B),
-                modifier = Modifier.padding(bottom = 12.dp)
-            ) {
-                Text(
-                    text = timeBadge,
-                    fontSize = 11.sp,
-                    color = Color(0xFF38BDF8),
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                )
-            }
-
-            // 3 adjacent columns: Hours, Separator, Minutes, AM/PM forced to LTR layout
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF1E293B), shape = RoundedCornerShape(16.dp))
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    // Hours wheel (1..12, infinite loop, snap to center)
-                    VerticalWheelPicker(
-                        items = (1..12).toList(),
-                        selectedItem = hour12,
-                        onItemSelected = onHourChange,
-                        isInfinite = true,
-                        itemHeight = 44.dp,
-                        fontSize = 28.sp,
-                        showDividers = true,
-                        itemLabel = { String.format("%02d", it) },
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    // Fixed Colon separator
-                    Box(
-                        modifier = Modifier
-                            .height(44.dp * 3),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = ":",
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF10B981),
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
-                    }
-
-                    // Minutes wheel (0..59, infinite loop, snap to center)
-                    VerticalWheelPicker(
-                        items = (0..59).toList(),
-                        selectedItem = minute,
-                        onItemSelected = onMinuteChange,
-                        isInfinite = true,
-                        itemHeight = 44.dp,
-                        fontSize = 28.sp,
-                        showDividers = true,
-                        itemLabel = { String.format("%02d", it) },
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Period wheel (ص / م)
-                    VerticalWheelPicker(
-                        items = listOf(true, false),
-                        selectedItem = isAm,
-                        onItemSelected = onAmPmToggle,
-                        isInfinite = false,
-                        itemHeight = 44.dp,
-                        fontSize = 22.sp,
-                        showDividers = true,
-                        itemLabel = { if (it) "ص" else "م" },
-                        modifier = Modifier.weight(0.7f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Reusable vertical scroll wheel / drum picker matching Alarmy design:
- * - 3 visible items vertically (center is selected in large bold white; top and bottom in dim gray)
- * - 2 thin horizontal divider lines separating selected middle item
- * - Snap to center
- * - Infinite loop support for hours/minutes
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun <T> VerticalWheelPicker(
-    items: List<T>,
-    selectedItem: T,
-    onItemSelected: (T) -> Unit,
-    modifier: Modifier = Modifier,
-    isInfinite: Boolean = false,
-    itemHeight: Dp = 44.dp,
-    visibleItemsCount: Int = 3,
-    showDividers: Boolean = true,
-    fontSize: TextUnit = 22.sp,
-    itemLabel: (T) -> String = { it.toString() }
-) {
-    if (items.isEmpty()) return
-
-    val coroutineScope = rememberCoroutineScope()
-    val isEffectivelyInfinite = isInfinite && items.size > 1
-    val repeatCount = 10_000
-    val middleBase = if (isEffectivelyInfinite) (repeatCount / 2) * items.size else 0
-
-    val initialIndex = remember(items, selectedItem) {
-        val idx = items.indexOf(selectedItem)
-        if (idx >= 0) idx else 0
-    }
-
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = if (isEffectivelyInfinite) {
-            middleBase + initialIndex - 1
-        } else {
-            initialIndex
-        }
-    )
-
-    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
-
-    // Sync external programmatic updates to selectedItem or bounce back if parent clamped invalid selection
-    LaunchedEffect(selectedItem, listState.isScrollInProgress) {
-        if (!listState.isScrollInProgress) {
-            val targetIdx = items.indexOf(selectedItem)
-            if (targetIdx >= 0) {
-                if (isEffectivelyInfinite) {
-                    val currentCenter = (listState.firstVisibleItemIndex + 1) % items.size
-                    if (currentCenter != targetIdx) {
-                        val currentCenterAbsolute = listState.firstVisibleItemIndex + 1
-                        val cycleBase = (currentCenterAbsolute / items.size) * items.size
-                        val targetFirst = (cycleBase + targetIdx - 1).let {
-                            if (it < 0) it + items.size else it
-                        }
-                        listState.animateScrollToItem(targetFirst)
-                    }
-                } else {
-                    if (listState.firstVisibleItemIndex != targetIdx) {
-                        listState.animateScrollToItem(targetIdx)
-                    }
-                }
-            }
-        }
-    }
-
-    // Emit selection when scrolling stops
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
-            .collect { (firstIndex, isScrolling) ->
-                if (!isScrolling) {
-                    val selected = if (isEffectivelyInfinite) {
-                        val centerIndex = (firstIndex + 1) % items.size
-                        items.getOrNull(centerIndex)
-                    } else {
-                        items.getOrNull(firstIndex)
-                    }
-                    if (selected != null && selected != selectedItem) {
-                        onItemSelected(selected)
-                    }
-                }
-            }
-    }
-
-    Box(
-        modifier = modifier
-            .height(itemHeight * visibleItemsCount)
-    ) {
-        if (isEffectivelyInfinite) {
-            val totalCount = items.size * repeatCount
-            LazyColumn(
-                state = listState,
-                flingBehavior = flingBehavior,
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                items(totalCount) { index ->
-                    val actualItem = items[index % items.size]
-                    val isCenter = index == listState.firstVisibleItemIndex + 1
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(itemHeight)
-                            .clickable {
-                                coroutineScope.launch {
-                                    val targetScroll = (index - 1).coerceAtLeast(0)
-                                    listState.animateScrollToItem(targetScroll)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = itemLabel(actualItem),
-                            fontSize = if (isCenter) fontSize else (fontSize.value * 0.78f).sp,
-                            fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isCenter) Color.White else Color(0xFF94A3B8),
-                            modifier = Modifier.alpha(if (isCenter) 1f else 0.35f),
-                            textAlign = TextAlign.Center,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-        } else {
-            val paddedItems = remember(items) { listOf(null) + items + listOf(null) }
-            LazyColumn(
-                state = listState,
-                flingBehavior = flingBehavior,
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                items(paddedItems.size) { index ->
-                    val item = paddedItems[index]
-                    val isCenter = index == listState.firstVisibleItemIndex + 1
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(itemHeight)
-                            .then(
-                                if (item != null) {
-                                    Modifier.clickable {
-                                        coroutineScope.launch {
-                                            val targetFirst = (index - 1).coerceIn(0, items.size - 1)
-                                            listState.animateScrollToItem(targetFirst)
-                                        }
-                                    }
-                                } else Modifier
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (item != null) {
-                            Text(
-                                text = itemLabel(item),
-                                fontSize = if (isCenter) fontSize else (fontSize.value * 0.78f).sp,
-                                fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isCenter) Color.White else Color(0xFF94A3B8),
-                                modifier = Modifier.alpha(if (isCenter) 1f else 0.35f),
-                                textAlign = TextAlign.Center,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        if (showDividers) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(top = itemHeight)
-                    .height(1.dp)
-                    .background(Color(0xFF10B981).copy(alpha = 0.4f))
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(top = itemHeight * 2)
-                    .height(1.dp)
-                    .background(Color(0xFF10B981).copy(alpha = 0.4f))
-            )
-        }
-    }
+    return startCandidate
 }

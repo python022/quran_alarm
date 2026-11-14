@@ -9,6 +9,7 @@ import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
 import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
 import com.quran.alarm.alarm.domain.repository.AlarmRepository
 import com.quran.alarm.alarm.domain.scheduler.AlarmScheduler
+import com.quran.alarm.alarm.service.AlarmAlertIntentFactory
 import com.quran.alarm.alarm.service.AlarmForegroundService
 import com.quran.alarm.ui.AlarmAlertActivity
 
@@ -49,12 +50,13 @@ class AlarmReceiver : BroadcastReceiver() {
         val alarm = repository.getAlarmById(alarmId)
         if (alarm != null) {
             if (alarm.repeatDays.isNotEmpty()) {
-                val nextTrigger = alarm.getNextTriggerMillis(System.currentTimeMillis() + 60_000L)
+                val nextTrigger = alarm.copy(explicitTriggerMillis = null)
+                    .getNextTriggerMillis(System.currentTimeMillis() + 60_000L)
                 val refreshed = alarm.copy(explicitTriggerMillis = nextTrigger)
                 repository.saveAlarm(refreshed)
                 scheduler.schedule(refreshed)
             } else {
-                val disabled = alarm.copy(isEnabled = false)
+                val disabled = alarm.copy(isEnabled = false, explicitTriggerMillis = null)
                 repository.saveAlarm(disabled)
             }
         }
@@ -67,29 +69,30 @@ class AlarmReceiver : BroadcastReceiver() {
         wakeLock?.acquire(15_000L) // 15 seconds transient window
 
         // 1. Launch Foreground Audio and Vibration Service
-        val serviceIntent = Intent(context, AlarmForegroundService::class.java).apply {
-            action = AlarmForegroundService.ACTION_START_ALARM
-            putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
-            putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, label)
-            putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, targetPage)
-            putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
-            putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
-            putExtra(AlarmForegroundService.EXTRA_VOLUME_LEVEL, volumeLevel)
-            putExtra(AlarmForegroundService.EXTRA_IS_VIBRATE, isVibrate)
-            putExtra(AlarmForegroundService.EXTRA_SOUND_URI, soundUri)
-        }
+        val serviceIntent = AlarmAlertIntentFactory.buildStartServiceIntent(
+            context = context,
+            alarmId = alarmId,
+            label = label,
+            targetPage = targetPage,
+            startPage = startPage,
+            pageCount = pageCount,
+            volumeLevel = volumeLevel,
+            isVibrate = isVibrate,
+            soundUri = soundUri
+        )
         ContextCompat.startForegroundService(context, serviceIntent)
 
         // 2. Launch Full-Screen Lockscreen Alert Activity directly
-        val alertIntent = Intent(context, AlarmAlertActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
-            putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, label)
-            putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, targetPage)
-            putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
-            putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
+        val alertIntent = AlarmAlertIntentFactory.buildAlertIntent(
+            context = context,
+            alarmId = alarmId,
+            label = label,
+            targetPage = targetPage,
+            startPage = startPage,
+            pageCount = pageCount,
+            isSnoozeEnabled = true,
+            isFreshTrigger = true
+        ).apply {
             putExtra(AlarmForegroundService.EXTRA_VOLUME_LEVEL, volumeLevel)
             putExtra(AlarmForegroundService.EXTRA_SOUND_URI, soundUri)
         }

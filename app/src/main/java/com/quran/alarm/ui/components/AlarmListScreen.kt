@@ -329,6 +329,7 @@ fun AlarmListScreen(
     if (uiState.isAddEditDialogOpen) {
         AddAlarmDialog(
             alarmToEdit = uiState.editingAlarm,
+            existingAlarmIds = uiState.alarms.map { it.id }.toSet(),
             onDismiss = onDismissDialog,
             onSave = onSaveAlarm
         )

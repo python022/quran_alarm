@@ -1,7 +1,6 @@
 package com.quran.alarm.ui
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -11,86 +10,32 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertStage
-import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModel
-import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModelFactory
-import com.quran.alarm.alarm.ui.viewmodel.MushafReaderUiState
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
-import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
-import com.quran.alarm.alarm.domain.model.AlarmItem
+import com.quran.alarm.alarm.service.AlarmAlertIntentFactory
 import com.quran.alarm.alarm.service.AlarmForegroundService
-import com.quran.alarm.quran.data.AyahInfoDatabase
-import com.quran.alarm.quran.data.AyahInfoLineBoundsRepositoryImpl
+import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertStage
+import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModel
+import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModelFactory
 import com.quran.alarm.quran.data.QuranPageManager
-import com.quran.alarm.quran.domain.model.LineRect
-import com.quran.alarm.quran.ui.QuranPageView
-import kotlinx.coroutines.delay
-import java.util.Calendar
 
 /**
  * High-priority lock screen activity launched via FullScreenIntent and direct intent when the alarm fires.
  *
  * Implements strict anti-bypass lockscreen behavior and displays the authentic Madinah Mushaf page:
- * - Hides navigation bars and status bar in sticky immersive mode.
+ * - Hides navigation bars and status bar in sticky immersive mode while respecting safe insets.
  * - Blocks physical volume down / up / mute keys.
  * - Disables back button exit via OnBackPressedCallback.
- * - Relaunches activity to front immediately on user leave hint, pause, or stop.
- * - Displays the authentic 15-line Madinah Mushaf page texture and active line highlighting.
+ * - Relaunches activity to front immediately on user leave hint, pause, or stop throughout the entire
+ *   active session (both RINGING and MUSHAF_READING until Wird completion or Snooze).
  * - Automatically advances the Wird to the next portion upon session completion.
  */
 class AlarmAlertActivity : ComponentActivity() {
@@ -98,12 +43,16 @@ class AlarmAlertActivity : ComponentActivity() {
     companion object {
         @Volatile
         var isActivityVisible: Boolean = false
+
+        @Volatile
+        var isDismissedOrSnoozedGlobally: Boolean = false
     }
 
     private var alarmId: Int = 0
     private var alarmLabel: String = "ورد القرآن الكريم"
     private var startPage: Int = 1
     private var pageCount: Int = 5
+    private var isDismissedOrSnoozed = false
 
     private val pageManager by lazy { QuranPageManager(applicationContext) }
     private val viewModel: AlarmAlertViewModel by viewModels {
@@ -112,6 +61,8 @@ class AlarmAlertActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        isDismissedOrSnoozed = false
+        isDismissedOrSnoozedGlobally = false
         setupLockscreenFlags()
         setupImmersiveStickyMode()
         setupAntiBypassBackBlocker()
@@ -121,7 +72,7 @@ class AlarmAlertActivity : ComponentActivity() {
         val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1).coerceIn(1, 604)
         startPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
         pageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
-        val isSnoozeEnabled = intent.getBooleanExtra("com.quran.alarm.EXTRA_IS_SNOOZE_ENABLED", true)
+        val isSnoozeEnabled = intent.getBooleanExtra(AlarmAlertIntentFactory.EXTRA_IS_SNOOZE_ENABLED, true)
 
         if (savedInstanceState == null) {
             viewModel.initialize(alarmId, alarmLabel, startPage, pageCount, isSnoozeEnabled)
@@ -140,7 +91,9 @@ class AlarmAlertActivity : ComponentActivity() {
                         onNextPage = { viewModel.goToNextPage() },
                         onLineClicked = { viewModel.onLineClicked(it, allowDirectJump = false) },
                         onNextStep = { viewModel.advanceToNextLineOrPage() },
+                        onJumpToIncompletePage = { viewModel.goToFirstIncompletePage() },
                         onStartReading = {
+                            AlarmForegroundService.isReadingSessionActiveGlobally = true
                             viewModel.startReadingWird()
                             val silenceIntent = Intent(this@AlarmAlertActivity, AlarmForegroundService::class.java).apply {
                                 action = AlarmForegroundService.ACTION_SILENCE_RINGING
@@ -152,13 +105,37 @@ class AlarmAlertActivity : ComponentActivity() {
                             startService(silenceIntent)
                         },
                         onSnooze = {
-                            viewModel.snooze(minutes = 5) {
-                                stopAlarmServiceAndFinish()
+                            if (!isDismissedOrSnoozed && !isDismissedOrSnoozedGlobally) {
+                                isDismissedOrSnoozed = true
+                                isDismissedOrSnoozedGlobally = true
+                                AlarmForegroundService.isAlarmRingingGlobally = false
+                                AlarmForegroundService.isReadingSessionActiveGlobally = false
+
+                                val stopIntent = Intent(this@AlarmAlertActivity, AlarmForegroundService::class.java).apply {
+                                    action = AlarmForegroundService.ACTION_STOP_ALARM
+                                }
+                                startService(stopIntent)
+
+                                viewModel.snooze(minutes = 5) {
+                                    finish()
+                                }
                             }
                         },
                         onDismissAlarm = {
-                            viewModel.completeWird {
-                                stopAlarmServiceAndFinish()
+                            if (!isDismissedOrSnoozed && !isDismissedOrSnoozedGlobally) {
+                                isDismissedOrSnoozed = true
+                                isDismissedOrSnoozedGlobally = true
+                                AlarmForegroundService.isAlarmRingingGlobally = false
+                                AlarmForegroundService.isReadingSessionActiveGlobally = false
+
+                                val stopIntent = Intent(this@AlarmAlertActivity, AlarmForegroundService::class.java).apply {
+                                    action = AlarmForegroundService.ACTION_STOP_ALARM
+                                }
+                                startService(stopIntent)
+
+                                viewModel.completeWird {
+                                    finish()
+                                }
                             }
                         }
                     )
@@ -170,14 +147,19 @@ class AlarmAlertActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (isDismissedOrSnoozed || isDismissedOrSnoozedGlobally) {
+            finish()
+            return
+        }
         val newAlarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
         val newAlarmLabel = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
         val targetPage = intent.getIntExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, 1).coerceIn(1, 604)
         val newStartPage = intent.getIntExtra(AlarmForegroundService.EXTRA_START_PAGE, targetPage).coerceIn(1, 604)
         val newPageCount = intent.getIntExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, 5).coerceAtLeast(1)
-        val isSnoozeEnabled = intent.getBooleanExtra("com.quran.alarm.EXTRA_IS_SNOOZE_ENABLED", true)
+        val isSnoozeEnabled = intent.getBooleanExtra(AlarmAlertIntentFactory.EXTRA_IS_SNOOZE_ENABLED, true)
+        val isFreshTrigger = intent.getBooleanExtra(AlarmAlertIntentFactory.EXTRA_IS_FRESH_TRIGGER, false)
 
-        if (newAlarmId != alarmId || viewModel.uiState.value.stage == AlarmAlertStage.RINGING) {
+        if (newAlarmId != alarmId || isFreshTrigger || viewModel.uiState.value.stage == AlarmAlertStage.RINGING) {
             isDismissedOrSnoozed = false
             alarmId = newAlarmId
             alarmLabel = newAlarmLabel
@@ -200,13 +182,13 @@ class AlarmAlertActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val params = window.attributes
-        params.screenBrightness = 0.85f
+        params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         window.attributes = params
     }
 
@@ -220,7 +202,7 @@ class AlarmAlertActivity : ComponentActivity() {
     private fun setupAntiBypassBackBlocker() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Strictly disallow back button exit during alarm ringing
+                // Strictly disallow back button exit during active alarm/reading session
             }
         })
     }
@@ -244,7 +226,7 @@ class AlarmAlertActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         isActivityVisible = false
-        if (!isDismissedOrSnoozed) {
+        if (shouldRelaunchToFront()) {
             relaunchToFront()
         }
     }
@@ -252,36 +234,45 @@ class AlarmAlertActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         isActivityVisible = false
-        if (!isDismissedOrSnoozed) {
+        if (shouldRelaunchToFront()) {
             relaunchToFront()
         }
     }
 
     override fun onDestroy() {
         isActivityVisible = false
-        pageManager.clearCache()
+        if (!isChangingConfigurations) {
+            pageManager.clearCache()
+        }
         super.onDestroy()
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (!isDismissedOrSnoozed) {
+        if (shouldRelaunchToFront()) {
             relaunchToFront()
         }
     }
 
+    private fun shouldRelaunchToFront(): Boolean =
+        !isDismissedOrSnoozed &&
+            !isDismissedOrSnoozedGlobally &&
+            AlarmForegroundService.isSessionLockActive()
+
     private fun relaunchToFront() {
+        if (!shouldRelaunchToFront()) return
         try {
-            val intent = Intent(this, AlarmAlertActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra(AlarmForegroundService.EXTRA_ALARM_ID, alarmId)
-                putExtra(AlarmForegroundService.EXTRA_ALARM_LABEL, alarmLabel)
-                putExtra(AlarmForegroundService.EXTRA_TARGET_PAGE, startPage)
-                putExtra(AlarmForegroundService.EXTRA_START_PAGE, startPage)
-                putExtra(AlarmForegroundService.EXTRA_PAGE_COUNT, pageCount)
-            }
+            val intent = AlarmAlertIntentFactory.buildAlertIntent(
+                context = this,
+                alarmId = alarmId,
+                label = alarmLabel,
+                targetPage = startPage,
+                startPage = startPage,
+                pageCount = pageCount,
+                isSnoozeEnabled = viewModel.uiState.value.isSnoozeEnabled,
+                isFreshTrigger = false,
+                reorderToFront = true
+            )
             startActivity(intent)
         } catch (t: Throwable) {
             Log.e("AlarmAlertActivity", "relaunchToFront error: ${t.message}")
@@ -290,337 +281,9 @@ class AlarmAlertActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (!hasFocus && !isDismissedOrSnoozed) {
+        if (!hasFocus && !isDismissedOrSnoozed && !isDismissedOrSnoozedGlobally) {
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.hide(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-
-    private var isDismissedOrSnoozed = false
-
-    private fun stopAlarmServiceAndFinish() {
-        isDismissedOrSnoozed = true
-        val stopIntent = Intent(this, AlarmForegroundService::class.java).apply {
-            action = AlarmForegroundService.ACTION_STOP_ALARM
-        }
-        startService(stopIntent)
-        finish()
-    }
-}
-
-@Composable
-fun AlarmAlertScreen(
-    uiState: MushafReaderUiState,
-    onPrevPage: () -> Unit,
-    onNextPage: () -> Unit,
-    onLineClicked: (Int) -> Unit,
-    onNextStep: () -> Unit,
-    onStartReading: () -> Unit,
-    onSnooze: () -> Unit,
-    onDismissAlarm: () -> Unit
-) {
-    var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            currentTimeMillis = System.currentTimeMillis()
-            delay(1000L)
-        }
-    }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-
-    if (uiState.stage == AlarmAlertStage.MUSHAF_READING) {
-        // Fullscreen Madinah Mushaf Reader with authentic paper illumination
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFFFFFDF5))
-        ) {
-            // Top Reader Bar
-            Surface(
-                color = Color(0xFF1E293B),
-                shadowElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = onPrevPage,
-                        enabled = uiState.hasPrevPageInWird,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = "السابقة",
-                            tint = if (uiState.hasPrevPageInWird) Color.White else Color(0xFF64748B),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("السابقة", fontSize = 12.sp)
-                    }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "صفحة ${uiState.currentPage} من 604",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = Color(0xFF38BDF8)
-                        )
-                        Text(
-                            text = "السطر ${uiState.activeLine} من ${uiState.pageMaxLines}",
-                            fontSize = 12.sp,
-                            color = Color(0xFF10B981)
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = onNextPage,
-                        enabled = uiState.hasNextPageInWird,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                    ) {
-                        Text("التالية", fontSize = 12.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "التالية",
-                            tint = if (uiState.hasNextPageInWird) Color.White else Color(0xFF64748B),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-            }
-
-            // Main Mushaf Page Canvas
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                QuranPageView(
-                    pageNumber = uiState.currentPage,
-                    pageBitmap = uiState.currentBitmap,
-                    lines = uiState.currentLines,
-                    activeLine = uiState.activeLine,
-                    onLineClicked = onLineClicked,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            // Bottom Actions Control Bar
-            Surface(
-                color = Color(0xFF0F172A),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    if (uiState.isDismissEnabled) {
-                        Button(
-                            onClick = onDismissAlarm,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF10B981)
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "إتمام الورد المبارك والخروج",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = Color.White
-                            )
-                        }
-                    } else {
-                        Button(
-                            onClick = onNextStep,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF1E293B)
-                            ),
-                            border = BorderStroke(1.dp, Color(0xFF334155)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                        ) {
-                            val btnText = if (uiState.activeLine < uiState.lastReadableLineOnPage) {
-                                "السطر التالي"
-                            } else if (uiState.hasNextPageInWird) {
-                                "الصفحة التالية"
-                            } else {
-                                "السطر التالي"
-                            }
-                            Text(
-                                text = btnText,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF38BDF8)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        // Dedicated Ringing Stage Screen before entering Quran recitation
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 20.dp)
-            ) {
-                Text(
-                    text = AlarmUiFormatters.formatCurrentDate(currentTimeMillis),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF94A3B8),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = AlarmUiFormatters.formatCurrentDigitalTime(currentTimeMillis),
-                    fontSize = 68.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(72.dp)
-                        .scale(pulseScale)
-                        .background(Color(0xFF10B981).copy(alpha = 0.2f), shape = CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = null,
-                        tint = Color(0xFF10B981),
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = uiState.alarmLabel,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "ورد اليوم: صفحة ${uiState.startPage} إلى ${uiState.endPage}",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF38BDF8),
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "(${uiState.pageCount} صفحات متتالية)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF10B981)
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Prominent Hero Action: Start Reading Wird (Silences sound & vibration, enters Mushaf)
-                Button(
-                    onClick = onStartReading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
-                ) {
-                    Text(
-                        text = "📖 بدء قراءة الورد",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-
-                // Snooze option (if enabled)
-                if (uiState.isSnoozeEnabled) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = onSnooze,
-                        modifier = Modifier
-                            .fillMaxWidth(0.65f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                    ) {
-                        Text(
-                            text = "غفوة (5 دقائق)",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFFE2E8F0)
-                        )
-                    }
-                }
-            }
         }
     }
 }

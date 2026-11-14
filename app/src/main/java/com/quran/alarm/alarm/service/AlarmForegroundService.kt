@@ -49,6 +49,16 @@ class AlarmForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "quran_alarm_channel"
         const val CHANNEL_NAME = "منبه القرآن الكريم"
+
+        @Volatile
+        var isAlarmRingingGlobally: Boolean = false
+
+        @Volatile
+        var isReadingSessionActiveGlobally: Boolean = false
+
+        @JvmStatic
+        fun isSessionLockActive(): Boolean =
+            isAlarmRingingGlobally || isReadingSessionActiveGlobally
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -59,13 +69,14 @@ class AlarmForegroundService : Service() {
     private var serviceJob = Job()
     private var serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
     private var isAlarmRinging = false
+    private var isSessionActive = false
     private var watchdogJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        audioManager = SmartAlarmAudioManager(this)
+        audioManager = SmartAlarmAudioManager(this, externalScope = serviceScope)
         vibratorManager = AlarmVibratorManager(this)
         volumeEnforcer = VolumeEnforcer(this)
         createNotificationChannel()
@@ -80,10 +91,12 @@ class AlarmForegroundService : Service() {
 
         when (intent.action) {
             ACTION_SILENCE_RINGING -> {
-                // Silences alarm audio and vibration so user can recite Quran in peace
+                // Silences alarm audio and vibration so user can recite Quran in peace,
+                // while keeping session lock & watchdog active until the Wird is completed.
+                isAlarmRingingGlobally = false
                 isAlarmRinging = false
-                watchdogJob?.cancel()
-                watchdogJob = null
+                isReadingSessionActiveGlobally = true
+                isSessionActive = true
                 volumeEnforcer.stopEnforcing()
                 audioManager.stopAlarm()
                 vibratorManager.stopVibration()
@@ -99,15 +112,19 @@ class AlarmForegroundService : Service() {
                 val readingNotification = buildReadingNotification(alarmId, label, startPage, pageCount)
                 val notificationManager = getSystemService(NotificationManager::class.java)
                 notificationManager?.notify(NOTIFICATION_ID, readingNotification)
+
+                if (watchdogJob?.isActive != true) {
+                    watchdogJob = startWatchdog(alarmId, label, startPage, pageCount)
+                }
                 return START_STICKY
             }
             ACTION_STOP_ALARM -> {
+                isAlarmRingingGlobally = false
+                isReadingSessionActiveGlobally = false
                 isAlarmRinging = false
+                isSessionActive = false
                 watchdogJob?.cancel()
                 watchdogJob = null
-                serviceJob.cancel()
-                serviceJob = Job()
-                serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
                 volumeEnforcer.stopEnforcing()
                 audioManager.stopAlarm()
                 vibratorManager.stopVibration()
@@ -115,6 +132,12 @@ class AlarmForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START_ALARM, null -> {
+                isAlarmRingingGlobally = true
+                isReadingSessionActiveGlobally = false
+                isAlarmRinging = true
+                isSessionActive = true
+                AlarmAlertActivity.isDismissedOrSnoozedGlobally = false
+
                 val alarmId = intent.getIntExtra(EXTRA_ALARM_ID, 0)
                 val label = intent.getStringExtra(EXTRA_ALARM_LABEL) ?: "ورد القرآن الكريم"
                 val targetPage = intent.getIntExtra(EXTRA_TARGET_PAGE, 1)
@@ -151,7 +174,6 @@ class AlarmForegroundService : Service() {
 
                 // Start watchdog coroutine to guarantee AlarmAlertActivity stays front and center
                 watchdogJob?.cancel()
-                isAlarmRinging = true
                 watchdogJob = startWatchdog(alarmId, label, startPage, pageCount)
             }
         }
@@ -161,10 +183,14 @@ class AlarmForegroundService : Service() {
 
     private fun startWatchdog(alarmId: Int, label: String, startPage: Int, pageCount: Int): Job {
         return serviceScope.launch {
-            while (isAlarmRinging) {
-                delay(750)
+            while (isSessionActive && isSessionLockActive()) {
+                delay(1000)
                 try {
-                    if (isAlarmRinging && !AlarmAlertActivity.isActivityVisible) {
+                    if (isSessionActive &&
+                        isSessionLockActive() &&
+                        !AlarmAlertActivity.isActivityVisible &&
+                        !AlarmAlertActivity.isDismissedOrSnoozedGlobally
+                    ) {
                         launchAlarmActivity(alarmId, label, startPage, pageCount)
                     }
                 } catch (t: Throwable) {
@@ -175,33 +201,22 @@ class AlarmForegroundService : Service() {
     }
 
     private fun launchAlarmActivity(alarmId: Int, label: String, startPage: Int, pageCount: Int) {
+        val alertIntent = AlarmAlertIntentFactory.buildAlertIntent(
+            context = this,
+            alarmId = alarmId,
+            label = label,
+            targetPage = startPage,
+            startPage = startPage,
+            pageCount = pageCount,
+            isSnoozeEnabled = true,
+            isFreshTrigger = false,
+            reorderToFront = true
+        )
         try {
-            val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra(EXTRA_ALARM_ID, alarmId)
-                putExtra(EXTRA_ALARM_LABEL, label)
-                putExtra(EXTRA_TARGET_PAGE, startPage)
-                putExtra(EXTRA_START_PAGE, startPage)
-                putExtra(EXTRA_PAGE_COUNT, pageCount)
-            }
             startActivity(alertIntent)
         } catch (t: Throwable) {
             Log.e("AlarmForegroundService", "launchAlarmActivity direct error: ${t.message}")
             try {
-                val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    putExtra(EXTRA_ALARM_ID, alarmId)
-                    putExtra(EXTRA_ALARM_LABEL, label)
-                    putExtra(EXTRA_TARGET_PAGE, startPage)
-                    putExtra(EXTRA_START_PAGE, startPage)
-                    putExtra(EXTRA_PAGE_COUNT, pageCount)
-                }
                 val pi = PendingIntent.getActivity(
                     this,
                     alarmId + 400_000,
@@ -214,19 +229,17 @@ class AlarmForegroundService : Service() {
     }
 
     fun buildNotification(alarmId: Int, label: String, startPage: Int, pageCount: Int): Notification {
-        val safeStart = startPage.coerceIn(1, 604)
-        val safeCount = pageCount.coerceAtLeast(1)
-        val endPage = Math.floorMod(safeStart + safeCount - 2, 604) + 1
-        val fullScreenIntent = Intent(this, AlarmAlertActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(EXTRA_ALARM_ID, alarmId)
-            putExtra(EXTRA_ALARM_LABEL, label)
-            putExtra(EXTRA_TARGET_PAGE, startPage)
-            putExtra(EXTRA_START_PAGE, startPage)
-            putExtra(EXTRA_PAGE_COUNT, pageCount)
-        }
+        val endPage = AlarmAlertIntentFactory.computeEndPage(startPage, pageCount)
+        val fullScreenIntent = AlarmAlertIntentFactory.buildAlertIntent(
+            context = this,
+            alarmId = alarmId,
+            label = label,
+            targetPage = startPage,
+            startPage = startPage,
+            pageCount = pageCount,
+            isSnoozeEnabled = true,
+            isFreshTrigger = false
+        )
 
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
@@ -250,19 +263,17 @@ class AlarmForegroundService : Service() {
     }
 
     fun buildReadingNotification(alarmId: Int, label: String, startPage: Int, pageCount: Int): Notification {
-        val safeStart = startPage.coerceIn(1, 604)
-        val safeCount = pageCount.coerceAtLeast(1)
-        val endPage = Math.floorMod(safeStart + safeCount - 2, 604) + 1
-        val fullScreenIntent = Intent(this, AlarmAlertActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(EXTRA_ALARM_ID, alarmId)
-            putExtra(EXTRA_ALARM_LABEL, label)
-            putExtra(EXTRA_TARGET_PAGE, startPage)
-            putExtra(EXTRA_START_PAGE, startPage)
-            putExtra(EXTRA_PAGE_COUNT, pageCount)
-        }
+        val endPage = AlarmAlertIntentFactory.computeEndPage(startPage, pageCount)
+        val fullScreenIntent = AlarmAlertIntentFactory.buildAlertIntent(
+            context = this,
+            alarmId = alarmId,
+            label = label,
+            targetPage = startPage,
+            startPage = startPage,
+            pageCount = pageCount,
+            isSnoozeEnabled = true,
+            isFreshTrigger = false
+        )
 
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
@@ -344,10 +355,15 @@ class AlarmForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        isAlarmRingingGlobally = false
+        isReadingSessionActiveGlobally = false
         isAlarmRinging = false
+        isSessionActive = false
+        watchdogJob?.cancel()
+        watchdogJob = null
         serviceJob.cancel()
         volumeEnforcer.stopEnforcing()
-        audioManager.stopAlarm()
+        audioManager.destroy()
         vibratorManager.stopVibration()
         releaseWakeLock()
         super.onDestroy()

@@ -123,4 +123,19 @@ class QuranPageManagerTest {
         pageManager.preloadPages(centerPage = 604, radius = 1)
         assertTrue("Cache should hold preloaded pages including wrap-around page 1", pageManager.getCachedPagesCount() >= 2)
     }
+
+    @Test
+    fun testPageLoadingWithArabicLocale() = runBlocking {
+        val originalLocale = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale("ar", "SA"))
+            val fileName = QuranPageManager.getPageFileName(5)
+            assertEquals("page_005.webp", fileName)
+            val bitmap = pageManager.loadPageBitmap(5)
+            assertNotNull("Page 5 bitmap must load properly even under Arabic locale", bitmap)
+            assertTrue(bitmap!!.width > 0)
+        } finally {
+            java.util.Locale.setDefault(originalLocale)
+        }
+    }
 }

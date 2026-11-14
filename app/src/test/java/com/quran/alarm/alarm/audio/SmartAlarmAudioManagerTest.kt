@@ -85,5 +85,23 @@ class SmartAlarmAudioManagerTest {
     fun initialPlaybackState_isIdle() {
         assertEquals(AudioPlaybackState.IDLE, audioManager.playbackState.value)
     }
+
+    @Test
+    fun updateVolume_clampsAndExecutesSafely() {
+        audioManager.updateVolume(50)
+        audioManager.updateVolume(0)
+        audioManager.updateVolume(150)
+    }
+
+    @Test
+    fun previewSound_withDuration_stopsAfterDuration() {
+        audioManager.previewSound(
+            soundUriString = AlarmSoundPresets.URI_CALM_TONE,
+            volumeLevel = 50,
+            durationMs = 500L
+        )
+        audioManager.stopAlarm()
+        assertEquals(AudioPlaybackState.STOPPED, audioManager.playbackState.value)
+    }
 }
 

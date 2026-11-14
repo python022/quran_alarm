@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -81,6 +82,8 @@ fun AlarmCardItem(
                             text = if (alarm.isSequential) "ورد متسلسل" else "ورد ثابت",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
                             color = if (alarm.isSequential) Color(0xFF10B981) else Color(0xFF38BDF8)
                         )
                     }
@@ -107,13 +110,19 @@ fun AlarmCardItem(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClick) {
+                IconButton(
+                    onClick = onClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Edit,
                         contentDescription = "تعديل المنبه",
-                        tint = Color(0xFF94A3B8)
+                        tint = Color(0xFF94A3B8),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
+
+                Spacer(modifier = Modifier.width(2.dp))
 
                 Switch(
                     checked = alarm.isEnabled,
@@ -124,11 +133,17 @@ fun AlarmCardItem(
                     )
                 )
 
-                IconButton(onClick = onDelete) {
+                Spacer(modifier = Modifier.width(2.dp))
+
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "حذف المنبه",
-                        tint = Color(0xFFEF4444)
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
