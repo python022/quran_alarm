@@ -23,10 +23,5 @@ Thumbs.db
 *.log
 
 # Internal Docs & Plans
-docs/
-AGENTS.md
-CHANGELOG.md
-CONTRIBUTING.md
-التقرير_الشامل_لأبحاث_المصادر_المنشورة_لتطبيق_المنبه.md
-دليل_هندسة_تطبيق_المنبه_والبديل_النظيف.md
-هندسة_تطبيق_منبه_القرآن_وتتبع_العين_بالمصادر_الرسمية.md
+docs/*
+!docs/ROADMAP.md
