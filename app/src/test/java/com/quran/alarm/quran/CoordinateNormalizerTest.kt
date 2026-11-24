@@ -1,0 +1,196 @@
+package com.quran.alarm.quran
+
+import com.quran.alarm.quran.domain.model.LineRect
+import com.quran.alarm.quran.domain.service.CoordinateNormalizer
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+class CoordinateNormalizerTest {
+
+    private lateinit var normalizer: CoordinateNormalizer
+    private lateinit var sampleLine: LineRect
+
+    @Before
+    fun setUp() {
+        normalizer = CoordinateNormalizer(1260f, 2038f)
+        sampleLine = LineRect(
+            pageNumber = 3,
+            lineNumber = 1,
+            minX = 91,
+            maxX = 1176,
+            minY = 30,
+            maxY = 145
+        )
+    }
+
+    @Test
+    fun testExactScalingIdentity() {
+        val proj = normalizer.calculateProjection(1260f, 2038f)
+        assertEquals(1.0f, proj.scale, 0.001f)
+        assertEquals(0.0f, proj.offsetX, 0.001f)
+        assertEquals(0.0f, proj.offsetY, 0.001f)
+
+        val norm = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 0f)
+        assertEquals(91f, norm.left, 0.01f)
+        assertEquals(1176f, norm.right, 0.01f)
+        assertEquals(30f, norm.top, 0.01f)
+        assertEquals(145f, norm.bottom, 0.01f)
+    }
+
+    @Test
+    fun testTallPhoneAspectRatioScaling() {
+        // Modern 20:9 phone, e.g. 1080 x 2400
+        val screenW = 1080f
+        val screenH = 2400f
+        val proj = normalizer.calculateProjection(screenW, screenH)
+
+        // Width is constraining factor: 1080 / 1260 = ~0.8571
+        val expectedScale = 1080f / 1260f
+        assertEquals(expectedScale, proj.scale, 0.001f)
+        assertEquals(0.0f, proj.offsetX, 0.001f)
+        assertTrue("Vertical letterboxing offset must be positive", proj.offsetY > 0f)
+
+        val norm = normalizer.normalize(sampleLine, screenW, screenH, verticalAbsorptionPx = 8f)
+        assertTrue(norm.left >= 0f)
+        assertTrue(norm.right <= screenW)
+        assertTrue(norm.top >= proj.offsetY)
+    }
+
+    @Test
+    fun testWideTabletAspectRatioScaling() {
+        // Tablet 4:3, e.g. 1536 x 2048
+        val screenW = 1536f
+        val screenH = 2048f
+        val proj = normalizer.calculateProjection(screenW, screenH)
+
+        // Height is constraining: 2048 / 2038 = 1.0049, Width scale: 1536 / 1260 = 1.219
+        val expectedScale = 2048f / 2038f
+        assertEquals(expectedScale, proj.scale, 0.001f)
+        assertTrue("Horizontal letterboxing offset must be positive on wide tablet", proj.offsetX > 0f)
+    }
+
+    @Test
+    fun testAbsorptionMarginExpandsLineHitArea() {
+        val withoutAbsorption = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 0f)
+        val withAbsorption = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 10f)
+
+        assertEquals(withoutAbsorption.top - 10f, withAbsorption.top, 0.001f)
+        assertEquals(withoutAbsorption.bottom + 10f, withAbsorption.bottom, 0.001f)
+        assertTrue(withAbsorption.height > withoutAbsorption.height)
+    }
+
+    @Test
+    fun testFindLineAtDirectHitAndProximitySnap() {
+        val line1 = sampleLine
+        val line2 = LineRect(pageNumber = 3, lineNumber = 2, minX = 91, maxX = 1182, minY = 162, maxY = 272)
+        val normalizedList = normalizer.normalizeAll(listOf(line1, line2), 1260f, 2038f, verticalAbsorptionPx = 4f)
+
+        // 1. Direct hit on Line 1 center
+        val hit1 = normalizer.findLineAt(line1.centerX, line1.centerY, normalizedList)
+        assertEquals(1, hit1)
+
+        // 2. Direct hit on Line 2 center
+        val hit2 = normalizer.findLineAt(line2.centerX, line2.centerY, normalizedList)
+        assertEquals(2, hit2)
+
+        // 3. Point in small gap between Line 1 (maxY ~145) and Line 2 (minY ~162), e.g. y = 150
+        val snap = normalizer.findLineAt(500f, 150f, normalizedList)
+        assertNotNull("Should snap to closest adjacent line in gap", snap)
+
+        // 4. Point far below bottom (e.g. y = 1500)
+        val farMiss = normalizer.findLineAt(500f, 1500f, normalizedList)
+        assertNull("Far point should not snap", farMiss)
+    }
+
+    @Test
+    fun testZeroAndNegativeDimensionsSafety() {
+        val projZero = normalizer.calculateProjection(0f, 0f)
+        assertTrue(projZero.scale > 0f)
+
+        val projNeg = normalizer.calculateProjection(-100f, -200f)
+        assertTrue(projNeg.scale > 0f)
+
+        val norm = normalizer.normalize(sampleLine, 0f, 0f)
+        assertNotNull(norm)
+    }
+
+    @Test
+    fun testOverlappingLinesPicksClosestCenterToPreventLineMasking() {
+        // Two lines overlapping in vertical range [95..105] due to absorption padding
+        val line1 = com.quran.alarm.quran.domain.model.NormalizedLineRect(
+            lineNumber = 1,
+            left = 50f,
+            top = 20f,
+            right = 500f,
+            bottom = 105f, // centerY = 62.5
+            leftRatio = 0f,
+            topRatio = 0f,
+            rightRatio = 1f,
+            bottomRatio = 1f
+        )
+        val line2 = com.quran.alarm.quran.domain.model.NormalizedLineRect(
+            lineNumber = 2,
+            left = 50f,
+            top = 95f,
+            right = 500f,
+            bottom = 180f, // centerY = 137.5
+            leftRatio = 0f,
+            topRatio = 0f,
+            rightRatio = 1f,
+            bottomRatio = 1f
+        )
+
+        // Point at y = 98: distance to line1 center (62.5) is 35.5. Distance to line2 center (137.5) is 39.5
+        val hit1 = normalizer.findLineAt(250f, 98f, listOf(line1, line2))
+        assertEquals("Should pick line 1 as its center is closer", 1, hit1)
+
+        // Point at y = 104: distance to line1 center is 41.5. Distance to line2 center is 33.5
+        val hit2 = normalizer.findLineAt(250f, 104f, listOf(line1, line2))
+        assertEquals("Should pick line 2 to prevent masking the lower line", 2, hit2)
+    }
+
+    @Test
+    fun testDensityScalingAdjustsSnapDistance() {
+        val line = com.quran.alarm.quran.domain.model.NormalizedLineRect(
+            lineNumber = 1,
+            left = 50f,
+            top = 20f,
+            right = 500f,
+            bottom = 100f,
+            leftRatio = 0f,
+            topRatio = 0f,
+            rightRatio = 1f,
+            bottomRatio = 1f
+        )
+
+        // Point 50px below line bottom (y = 150)
+        // With base maxSnapDistancePx = 32 and density = 1.0f -> 50 > 32 -> returns null
+        val missMdpi = normalizer.findLineAt(250f, 150f, listOf(line), maxSnapDistancePx = 32f, density = 1.0f)
+        assertNull(missMdpi)
+
+        // With density = 3.0f (xxhdpi) -> effective snap distance = 32 * 3 = 96px -> 50 <= 96 -> snaps to line 1
+        val hitXxhdpi = normalizer.findLineAt(250f, 150f, listOf(line), maxSnapDistancePx = 32f, density = 3.0f)
+        assertEquals(1, hitXxhdpi)
+    }
+
+    @Test
+    fun testDensityScalingMultipliesAbsorptionMargin() {
+        val baseNorm = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 8f, density = 1.0f)
+        val densityNorm = normalizer.normalize(sampleLine, 1260f, 2038f, verticalAbsorptionPx = 8f, density = 3.0f)
+
+        // sampleLine minY = 30, maxY = 145 (at 1260x2038 identity scale)
+        // With density = 1.0: absorption = 8px -> top = 30 - 8 = 22, bottom = 145 + 8 = 153
+        assertEquals(22f, baseNorm.top, 0.01f)
+        assertEquals(153f, baseNorm.bottom, 0.01f)
+
+        // With density = 3.0: absorption = 24px -> top = 30 - 24 = 6, bottom = 145 + 24 = 169
+        assertEquals(6f, densityNorm.top, 0.01f)
+        assertEquals(169f, densityNorm.bottom, 0.01f)
+        assertTrue("Height with density 3 must be strictly larger than density 1", densityNorm.height > baseNorm.height)
+    }
+}
+
