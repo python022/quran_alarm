@@ -85,6 +85,10 @@ android {
         }
     }
 
+    androidResources {
+        noCompress += listOf("m4a", "webm", "ogg", "mp3", "wav")
+    }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
@@ -109,7 +113,9 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 

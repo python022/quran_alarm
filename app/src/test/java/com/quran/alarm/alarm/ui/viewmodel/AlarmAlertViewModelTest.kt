@@ -363,7 +363,7 @@ class AlarmAlertViewModelTest {
     @Test
     fun testSoundPresetsAndCustomTitles() {
         val defaultTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(null)
-        assertEquals("نغمة المنبه الافتراضية", defaultTitle)
+        assertEquals("النغمة الافتراضية", defaultTitle)
 
         val adhanTitle = com.quran.alarm.alarm.domain.model.AlarmSoundPresets.getTitleForUri(
             com.quran.alarm.alarm.domain.model.AlarmSoundPresets.URI_ADHAN_FAJR
@@ -938,6 +938,62 @@ class AlarmAlertViewModelTest {
         assertEquals(4, vm.uiState.value.currentPage)
         assertEquals(setOf(3), vm.uiState.value.completedPages)
         assertEquals(10, vm.uiState.value.activeLine)
+    }
+
+    @Test
+    fun emergencyExitOnError_isBlockedDuringNormalReading_andAllowedWhenPageLoadFails() = runTest(testDispatcher) {
+        var shouldFail = false
+        val flakeyLineRepo = object : LineBoundsRepository {
+            override suspend fun getLinesForPage(pageNumber: Int): List<LineRect> {
+                if (shouldFail) throw IllegalStateException("Storage full")
+                return fakeLineRepo.getLinesForPage(pageNumber)
+            }
+
+            override fun getLinesForPageSync(pageNumber: Int): List<LineRect> =
+                fakeLineRepo.getLinesForPageSync(pageNumber)
+
+            override fun getPageLineCount(pageNumber: Int): Int =
+                fakeLineRepo.getPageLineCount(pageNumber)
+
+            override suspend fun getAyahRangeInfo(surahNumber: Int, startAyah: Int, endAyah: Int): AyahPageRange? =
+                null
+
+            override suspend fun getAyahLineRangeOnPage(
+                surahNumber: Int,
+                startAyah: Int,
+                endAyah: Int,
+                pageNumber: Int
+            ): IntRange? = null
+        }
+
+        val vm = AlarmAlertViewModel(
+            lineBoundsRepository = flakeyLineRepo,
+            pageManager = null,
+            alarmRepository = fakeAlarmRepo,
+            alarmScheduler = fakeAlarmScheduler,
+            ioDispatcher = testDispatcher
+        )
+
+        // Normal load succeeds -> emergencyExitOnError must be strictly ignored
+        vm.initialize(alarmId = 88, alarmLabel = "Wird", rawStartPage = 10, rawPageCount = 2)
+        advanceUntilIdle()
+        vm.startReadingWird()
+
+        var exited = false
+        vm.emergencyExitOnError { exited = true }
+        advanceUntilIdle()
+        assertFalse("Emergency exit must remain locked when no loadError occurred", exited)
+
+        // Failing next page load populates loadError -> emergencyExitOnError snoozes safely
+        shouldFail = true
+        vm.goToNextPage()
+        advanceUntilIdle()
+        assertNotNull("Load failure must expose loadError", vm.uiState.value.loadError)
+
+        vm.emergencyExitOnError { exited = true }
+        advanceUntilIdle()
+        assertTrue("Emergency exit must allow safe snooze recovery on loadError", exited)
+        assertTrue("Emergency exit must schedule a 5-min snooze", fakeAlarmScheduler.scheduled.any { it.id == 88 })
     }
 
     // Fake implementations for testing

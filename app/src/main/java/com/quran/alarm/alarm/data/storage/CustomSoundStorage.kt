@@ -72,8 +72,8 @@ object CustomSoundStorage {
         val dir = getCustomSoundsDir(context).apply { mkdirs() }
         val target = File(dir, "alarm_sound_${UUID.randomUUID()}.audio")
         return try {
-            val mimeType = context.contentResolver.getType(uri)
-            if (mimeType != null && !mimeType.startsWith("audio/") && mimeType != "application/ogg") {
+            val mimeType = context.contentResolver.getType(uri)?.lowercase()
+            if (mimeType != null && isExplicitlyNonAudioMime(mimeType)) {
                 return null
             }
 
@@ -160,6 +160,15 @@ object CustomSoundStorage {
                         )
                     } else {
                         importAudioFromUri(context, uri, fallbackDisplayName = title)
+                            ?: if (uri.authority == "media") {
+                                ImportedAudioResult(
+                                    copiedFile = null,
+                                    uriString = uri.toString(),
+                                    displayName = title
+                                )
+                            } else {
+                                null
+                            }
                     }
                 }
                 else -> null
@@ -205,6 +214,13 @@ object CustomSoundStorage {
                 }
             }
         } catch (_: Exception) {}
+    }
+
+    private fun isExplicitlyNonAudioMime(mimeType: String): Boolean {
+        return mimeType.startsWith("text/") ||
+            mimeType.startsWith("image/") ||
+            mimeType == "application/pdf" ||
+            mimeType == "application/zip"
     }
 
     private fun isPlayableAudioFile(file: File): Boolean {

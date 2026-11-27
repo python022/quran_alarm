@@ -12,13 +12,11 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
@@ -31,6 +29,8 @@ import com.quran.alarm.alarm.service.AlarmAlertPayload
 import com.quran.alarm.alarm.service.AlarmForegroundService
 import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModel
 import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertViewModelFactory
+import com.quran.alarm.ui.theme.QuranAlarmTheme
+import com.quran.alarm.ui.theme.QuranColors
 
 /**
  * High-priority lock screen activity launched via FullScreenIntent and direct intent when the alarm fires.
@@ -96,10 +96,10 @@ class AlarmAlertActivity : ComponentActivity() {
 
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                MaterialTheme {
+                QuranAlarmTheme {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
-                        color = Color(0xFF0F172A)
+                        color = QuranColors.BgPrimary
                     ) {
                         val uiState by viewModel.uiState.collectAsState()
                         AlarmAlertScreen(
@@ -143,6 +143,21 @@ class AlarmAlertActivity : ComponentActivity() {
                                         stopAlarmService()
                                         finish()
                                     }
+                                }
+                            },
+                            onRetryLoad = { viewModel.retryLoadPage() },
+                            onEmergencyExit = {
+                                if ((viewModel.uiState.value.loadError != null || alarmId < 0) && beginHandlingAction()) {
+                                    viewModel.emergencyExitOnError {
+                                        stopAlarmService()
+                                        finish()
+                                    }
+                                }
+                            },
+                            onExitPreview = {
+                                if (alarmId < 0 && beginHandlingAction()) {
+                                    stopAlarmService()
+                                    finish()
                                 }
                             }
                         )
@@ -250,7 +265,11 @@ class AlarmAlertActivity : ComponentActivity() {
     private fun setupAntiBypassBackBlocker() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Strictly disallow back button exit during active alarm/reading session
+                if (alarmId < 0 && beginHandlingAction()) {
+                    stopAlarmService()
+                    finish()
+                }
+                // Strictly disallow back button exit during active real alarm/reading session
             }
         })
     }
@@ -259,8 +278,14 @@ class AlarmAlertActivity : ComponentActivity() {
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP,
             KeyEvent.KEYCODE_VOLUME_DOWN,
-            KeyEvent.KEYCODE_VOLUME_MUTE,
-            KeyEvent.KEYCODE_BACK -> true
+            KeyEvent.KEYCODE_VOLUME_MUTE -> true
+            KeyEvent.KEYCODE_BACK -> {
+                if (alarmId < 0 && beginHandlingAction()) {
+                    stopAlarmService()
+                    finish()
+                }
+                true
+            }
             else -> super.onKeyDown(keyCode, event)
         }
     }

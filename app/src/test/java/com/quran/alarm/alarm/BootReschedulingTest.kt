@@ -232,4 +232,33 @@ class BootReschedulingTest {
         val saved = repo.getAlarmById(106)!!
         assertEquals(repeating.copy(explicitTriggerMillis = null).getNextTriggerMillis(), saved.explicitTriggerMillis)
     }
+
+    @Test
+    fun oneShotAlarm_withExpiredSnoozeAndNullExplicitTrigger_isDisabledNotRescheduled() {
+        val repo = TestAlarmRepository()
+        val scheduler = TestAlarmScheduler()
+
+        val pastSnooze = System.currentTimeMillis() - 120_000L
+        val snoozedOneShot = AlarmItem(
+            id = 107,
+            hour = 5,
+            minute = 0,
+            repeatDays = emptySet(),
+            isEnabled = true,
+            explicitTriggerMillis = null,
+            snoozeTriggerMillis = pastSnooze
+        )
+        repo.saveAlarm(snoozedOneShot)
+
+        val receiver = BootReceiver().apply {
+            repositoryProvider = { repo }
+            schedulerProvider = { scheduler }
+        }
+        receiver.rescheduleAllAlarms(RuntimeEnvironment.getApplication(), shouldRestoreSession = false)
+
+        assertTrue("Expired one-shot snooze must not be rescheduled as ghost alarm", scheduler.scheduledAlarms.none { it.id == 107 })
+        val saved = repo.getAlarmById(107)!!
+        assertFalse("One-shot alarm with expired snooze must be marked disabled", saved.isEnabled)
+        assertEquals(null, saved.snoozeTriggerMillis)
+    }
 }

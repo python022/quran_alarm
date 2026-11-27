@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/adhan_fajr,@raw/calm_tone,@raw/eid_takbeer,@raw/quran_alert,@font/cairo,@font/cairo_regular,@font/cairo_medium,@font/cairo_semibold,@font/cairo_bold" />

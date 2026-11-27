@@ -18,16 +18,15 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -36,23 +35,24 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quran.alarm.MainActivity
@@ -60,10 +60,11 @@ import com.quran.alarm.R
 import com.quran.alarm.alarm.data.device.OemDeviceHelper
 import com.quran.alarm.alarm.domain.model.AlarmItem
 import com.quran.alarm.alarm.ui.viewmodel.AlarmUiState
-import com.quran.alarm.ui.AlarmUiFormatters
+import com.quran.alarm.ui.theme.GoldBadgeSurface
+import com.quran.alarm.ui.theme.QuranColors
 
 /**
- * Main Alarm List Screen composed with Clean Architecture and Material3.
+ * Main Alarm List Screen composed with Dark Slate + Emerald + Gold Design System.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,17 +73,14 @@ fun AlarmListScreen(
     onAddClick: () -> Unit,
     onAlarmClick: (AlarmItem) -> Unit,
     onToggleAlarm: (AlarmItem, Boolean) -> Unit,
-    onDeleteConfirmed: (Int) -> Unit,
-    onSaveAlarm: (AlarmItem) -> Unit,
-    onDismissDialog: () -> Unit,
     onFixMissingCorePermission: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var alarmToDelete by remember { mutableStateOf<AlarmItem?>(null) }
-    var showOemWizard by remember { mutableStateOf(false) }
+    var showOemWizard by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val uniqueAlarms = remember(uiState.alarms) { uiState.alarms.distinctBy { it.id } }
     val needsOemAttention = uiState.deviceReadinessStatus?.needsAttention == true
-    val hasEnabledAlarm = uiState.alarms.any { it.isEnabled }
+    val hasEnabledAlarm = uniqueAlarms.any { it.isEnabled }
     val readiness = uiState.deviceReadinessStatus
     val missingFullScreen = readiness != null && !readiness.isFullScreenIntentGranted
     val missingOverlay = readiness != null && !readiness.isOverlayGranted
@@ -99,28 +97,43 @@ fun AlarmListScreen(
                             text = "منبه القرآن الكريم",
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
-                            color = Color.White
+                            color = QuranColors.TextPrimary
                         )
-                        Text(
-                            text = uiState.nextAlarmCountdown.ifBlank { "لا توجد منبهات نشطة" },
-                            fontSize = 12.sp,
-                            color = if (uiState.nextAlarmCountdown.isNotBlank() && !uiState.nextAlarmCountdown.contains("لا توجد")) {
-                                Color(0xFF10B981)
-                            } else {
-                                Color(0xFF94A3B8)
+                        val hasActiveCountdown = uiState.nextAlarmCountdown.isNotBlank() &&
+                            !uiState.nextAlarmCountdown.contains("لا توجد")
+                        if (hasActiveCountdown) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = QuranColors.ActivePillBg,
+                                border = BorderStroke(1.dp, QuranColors.ActivePillBorder)
+                            ) {
+                                Text(
+                                    text = "⏰ ${uiState.nextAlarmCountdown}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = QuranColors.ActivePillText,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
+                                )
                             }
-                        )
+                        } else {
+                            Text(
+                                text = "لا توجد منبهات نشطة",
+                                fontSize = 12.sp,
+                                color = QuranColors.TextSecondary
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF1E293B)
+                    containerColor = QuranColors.BgElevated
                 ),
                 actions = {
                     IconButton(onClick = { showOemWizard = true }) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "معالج موثوقية الجهاز",
-                            tint = if (needsOemAttention) Color(0xFFF59E0B) else Color(0xFF94A3B8)
+                            tint = if (needsOemAttention) QuranColors.WarningOrange else QuranColors.TextSecondary
                         )
                     }
                 }
@@ -130,8 +143,8 @@ fun AlarmListScreen(
             FloatingActionButton(
                 modifier = Modifier.navigationBarsPadding(),
                 onClick = onAddClick,
-                containerColor = Color(0xFF10B981),
-                contentColor = Color.White
+                containerColor = QuranColors.CtaBg,
+                contentColor = QuranColors.CtaText
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
@@ -139,13 +152,13 @@ fun AlarmListScreen(
                 )
             }
         },
-        containerColor = Color(0xFF0F172A)
+        containerColor = QuranColors.BgPrimary
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             // 0. Core Alert Permissions Guidance Banner (only when at least one alarm is enabled)
             if (showCorePermissionsBanner) {
@@ -169,9 +182,9 @@ fun AlarmListScreen(
                 }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF78350F).copy(alpha = 0.85f)),
-                    border = BorderStroke(1.dp, Color(0xFFD97706).copy(alpha = 0.5f))
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = QuranColors.WarningOrangeBg),
+                    border = BorderStroke(1.dp, QuranColors.WarningOrange.copy(alpha = 0.55f))
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(
@@ -181,16 +194,17 @@ fun AlarmListScreen(
                             Text(text = "💡", fontSize = 16.sp)
                             Text(
                                 text = bannerTitle,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = Color(0xFFFEF3C7)
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                color = QuranColors.TextPrimary
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = bannerBody,
                             fontSize = 12.sp,
-                            color = Color(0xFFFDE68A)
+                            color = QuranColors.TextSecondary,
+                            lineHeight = 18.sp
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(
@@ -199,29 +213,31 @@ fun AlarmListScreen(
                         ) {
                             Button(
                                 onClick = onFixMissingCorePermission,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
-                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = QuranColors.WarningOrange,
+                                    contentColor = QuranColors.CtaText
+                                ),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(38.dp)
+                                    .height(40.dp)
                             ) {
                                 Text(
                                     text = primaryButtonText,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                             OutlinedButton(
                                 onClick = { showOemWizard = true },
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
-                                modifier = Modifier.height(38.dp)
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, QuranColors.WarningOrange.copy(alpha = 0.6f)),
+                                modifier = Modifier.height(40.dp)
                             ) {
                                 Text(
                                     text = "معالج الجهاز",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFFEF3C7)
+                                    fontSize = 12.sp,
+                                    color = QuranColors.WarningOrange
                                 )
                             }
                         }
@@ -230,54 +246,24 @@ fun AlarmListScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            // 1. Khatma Progress Bar
-            uiState.khatmaProgress?.let { forecast ->
-                val currentStartPage = forecast.currentStartPage
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "📖 مسيرة ختمة القرآن الكريم",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = Color(0xFF38BDF8)
-                            )
-                            Text(
-                                text = "${forecast.progressPercentage.toInt()}% (صفحة $currentStartPage من 604)",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF10B981)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        LinearProgressIndicator(
-                            progress = (forecast.progressPercentage / 100f).coerceIn(0f, 1f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp),
-                            color = Color(0xFF10B981),
-                            trackColor = Color(0xFF334155),
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = forecast.forecastSummary,
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    }
-                }
+            // 1. Khatma / Surah Wird Progress Bar
+            val khatma = uiState.khatmaProgress
+            val surahWird = uiState.surahWirdProgress
+            if (khatma != null) {
+                WirdProgressCard(
+                    title = "📖 مسيرة ختمة القرآن الكريم",
+                    badgeText = "${khatma.progressPercentage.toInt()}% (صفحة ${khatma.currentStartPage} من 604)",
+                    progress = (khatma.progressPercentage / 100f).coerceIn(0f, 1f),
+                    summary = khatma.forecastSummary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            } else if (surahWird != null) {
+                WirdProgressCard(
+                    title = "📖 مسيرة الورد في سورة ${surahWird.surahName}",
+                    badgeText = "${surahWird.progressPercentage.toInt()}% (آية ${surahWird.currentStartAyah} من ${surahWird.totalAyahs})",
+                    progress = (surahWird.progressPercentage / 100f).coerceIn(0f, 1f),
+                    summary = surahWird.forecastSummary
+                )
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
@@ -288,19 +274,19 @@ fun AlarmListScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "قائمة المنبهات (${uiState.alarms.size})",
+                    text = "قائمة المنبهات (${uniqueAlarms.size})",
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    fontWeight = FontWeight.SemiBold,
+                    color = QuranColors.TextPrimary
                 )
                 Text(
                     text = "انقر على أي منبه لتعديله",
-                    fontSize = 11.sp,
-                    color = Color(0xFF64748B)
+                    fontSize = 12.sp,
+                    color = QuranColors.TextSecondary
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (uiState.isLoading) {
                 Box(
@@ -309,16 +295,16 @@ fun AlarmListScreen(
                         .padding(top = 40.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color(0xFF10B981))
+                    CircularProgressIndicator(color = QuranColors.CtaBg)
                 }
-            } else if (uiState.alarms.isEmpty()) {
+            } else if (uniqueAlarms.isEmpty()) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 28.dp),
+                        .padding(top = 24.dp),
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                    border = BorderStroke(1.dp, Color(0xFF334155))
+                    colors = CardDefaults.cardColors(containerColor = QuranColors.BgCard),
+                    border = BorderStroke(1.dp, QuranColors.BorderSubtle)
                 ) {
                     Column(
                         modifier = Modifier
@@ -338,94 +324,50 @@ fun AlarmListScreen(
                         Text(
                             text = "ابدأ يومك بنور القرآن والبركة",
                             fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            color = QuranColors.TextPrimary,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "لم تقم بضبط أي منبه بعد. اضغط على زر (+) في الأسفل لضبط منبه الفجر ووردك القرآني اليومي مع ميزة تتبع التلاوة.",
-                            fontSize = 12.sp,
-                            color = Color(0xFF94A3B8),
+                            fontSize = 13.sp,
+                            color = QuranColors.TextSecondary,
                             textAlign = TextAlign.Center,
-                            lineHeight = 18.sp
+                            lineHeight = 19.sp
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = onAddClick,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                            shape = RoundedCornerShape(10.dp)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = QuranColors.CtaBg,
+                                contentColor = QuranColors.CtaText
+                            ),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text(text = "إضافة منبه جديد", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                text = "إضافة منبه جديد",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp
+                            )
                         }
                     }
                 }
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 88.dp)
+                    contentPadding = PaddingValues(bottom = 92.dp)
                 ) {
-                    items(uiState.alarms, key = { it.id }) { alarm ->
+                    items(uniqueAlarms, key = { it.id }) { alarm ->
                         AlarmCardItem(
                             alarm = alarm,
                             onClick = { onAlarmClick(alarm) },
-                            onToggle = { isEnabled -> onToggleAlarm(alarm, isEnabled) },
-                            onDelete = { alarmToDelete = alarm }
+                            onToggle = { isEnabled -> onToggleAlarm(alarm, isEnabled) }
                         )
                     }
                 }
             }
         }
-    }
-
-    // Add / Edit Dialog
-    if (uiState.isAddEditDialogOpen) {
-        AddAlarmDialog(
-            alarmToEdit = uiState.editingAlarm,
-            existingAlarmIds = uiState.alarms.map { it.id }.toSet(),
-            onDismiss = onDismissDialog,
-            onSave = onSaveAlarm
-        )
-    }
-
-    // Delete Confirmation Dialog
-    if (alarmToDelete != null) {
-        val target = alarmToDelete!!
-        AlertDialog(
-            onDismissRequest = { alarmToDelete = null },
-            containerColor = Color(0xFF1E293B),
-            title = {
-                Text(
-                    text = "تأكيد حذف المنبه",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
-            },
-            text = {
-                Text(
-                    text = "هل أنت متأكد من حذف منبه (${target.label}) المقرر في ${AlarmUiFormatters.formatTime12Hour(target.hour, target.minute)}؟",
-                    color = Color(0xFFCBD5E1),
-                    fontSize = 14.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onDeleteConfirmed(target.id)
-                        alarmToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
-                ) {
-                    Text("حذف", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { alarmToDelete = null }) {
-                    Text("إلغاء", color = Color(0xFF94A3B8))
-                }
-            }
-        )
     }
 
     if (showOemWizard) {
@@ -436,5 +378,66 @@ fun AlarmListScreen(
                 (context as? MainActivity)?.requestNotificationsPermissionIfNeeded(fromWizard = true)
             }
         )
+    }
+}
+
+@Composable
+private fun WirdProgressCard(
+    title: String,
+    badgeText: String,
+    progress: Float,
+    summary: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = QuranColors.BgElevated),
+        border = BorderStroke(1.dp, QuranColors.BorderSubtle)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = QuranColors.TextPrimary
+                )
+                Text(
+                    text = badgeText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = QuranColors.ActivePillText
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            LinearProgressIndicator(
+                progress = progress,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(CircleShape),
+                color = QuranColors.CtaBg,
+                trackColor = QuranColors.BgPrimary
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            GoldBadgeSurface(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = summary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = QuranColors.GoldBadgeText,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
     }
 }

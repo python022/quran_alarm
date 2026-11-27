@@ -1,5 +1,7 @@
 package com.quran.alarm.alarm.domain.model
 
+import com.quran.alarm.ui.AlarmUiFormatters
+
 /**
  * Metadata representation of a Surah in the Madinah Mushaf (King Fahd Complex).
  */
@@ -46,6 +48,19 @@ data class KhatmaForecast(
     val currentStartPage: Int,
     val dailyPages: Int,
     val totalPagesRemaining: Int,
+    val daysToComplete: Int,
+    val progressPercentage: Float,
+    val forecastSummary: String
+)
+
+/**
+ * Forecast of Surah Wird completion when reading in single-Surah daily Ayah mode.
+ */
+data class SurahWirdForecast(
+    val surahName: String,
+    val currentStartAyah: Int,
+    val dailyAyahs: Int,
+    val totalAyahs: Int,
     val daysToComplete: Int,
     val progressPercentage: Float,
     val forecastSummary: String
@@ -277,6 +292,23 @@ object QuranStructure {
     }
 
     /**
+     * Validates that the user-selected range is within 1..604 and not inverted ([startPage] <= [endPage]).
+     */
+    fun isValidNonInvertedRange(startPage: Int, endPage: Int): Boolean {
+        return startPage in 1..TOTAL_PAGES && endPage in 1..TOTAL_PAGES && startPage <= endPage
+    }
+
+    /**
+     * Computes page count for a user-selected range, rejecting inverted ranges ([startPage] > [endPage]).
+     */
+    fun computeNonInvertedPageCount(startPage: Int, endPage: Int): Int {
+        require(isValidNonInvertedRange(startPage, endPage)) {
+            "Inverted or out-of-bounds page range is not allowed: $startPage..$endPage"
+        }
+        return endPage - startPage + 1
+    }
+
+    /**
      * Computes the concluding Ayah number for a single-Surah daily Ayah Wird.
      */
     fun computeEndAyah(surahNumber: Int?, startAyah: Int?, dailyAyahCount: Int?): Int? {
@@ -301,13 +333,48 @@ object QuranStructure {
         val summary = if (remaining <= safeDaily) {
             "اليوم موعد الختمة المباركة بإذن الله!"
         } else {
-            "الختمة المتوقعة خلال $days يوم ($remaining صفحة متبقية)"
+            val daysLabel = AlarmUiFormatters.formatDaysCount(days, genitive = true)
+            val remainingLabel = AlarmUiFormatters.formatPagesCount(remaining)
+            "الختمة المتوقعة خلال $daysLabel ($remainingLabel متبقية)"
         }
 
         return KhatmaForecast(
             currentStartPage = safeStart,
             dailyPages = safeDaily,
             totalPagesRemaining = remaining,
+            daysToComplete = days,
+            progressPercentage = percentage,
+            forecastSummary = summary
+        )
+    }
+
+    /**
+     * Calculates single-Surah Ayah Wird progress and completion forecast.
+     */
+    fun calculateSurahWirdForecast(surahNumber: Int, startAyah: Int, dailyAyahs: Int): SurahWirdForecast {
+        val safeSurahNum = surahNumber.coerceIn(1, TOTAL_SURAHS)
+        val surah = getSurahByNumber(safeSurahNum)
+        val safeStart = startAyah.coerceIn(1, surah.ayahCount)
+        val safeDaily = dailyAyahs.coerceIn(1, surah.ayahCount)
+        val remaining = surah.ayahCount - safeStart + 1
+        val days = Math.ceil(remaining.toDouble() / safeDaily.toDouble()).toInt()
+        val percentage = if (surah.ayahCount <= 1) {
+            0f
+        } else {
+            ((safeStart - 1).toFloat() / surah.ayahCount.toFloat()) * 100f
+        }
+        val summary = if (remaining <= safeDaily) {
+            "اليوم إتمام سورة ${surah.nameArabic} بإذن الله!"
+        } else {
+            val daysLabel = AlarmUiFormatters.formatDaysCount(days, genitive = true)
+            val remainingLabel = AlarmUiFormatters.formatAyahsCount(remaining)
+            "إتمام سورة ${surah.nameArabic} خلال $daysLabel ($remainingLabel متبقية)"
+        }
+        return SurahWirdForecast(
+            surahName = surah.nameArabic,
+            currentStartAyah = safeStart,
+            dailyAyahs = safeDaily,
+            totalAyahs = surah.ayahCount,
             daysToComplete = days,
             progressPercentage = percentage,
             forecastSummary = summary

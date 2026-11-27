@@ -23,13 +23,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quran.alarm.alarm.data.device.DeviceReadinessStatus
 import com.quran.alarm.alarm.data.device.OemDeviceHelper
+import com.quran.alarm.ui.theme.QuranColors
 
 @Composable
 fun OemSetupWizardDialog(
@@ -41,18 +41,18 @@ fun OemSetupWizardDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E293B),
+        containerColor = QuranColors.BgCard,
         title = {
             Column {
                 Text(
                     text = "معالج موثوقية المنبه",
-                    color = Color.White,
+                    color = QuranColors.TextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
                 Text(
                     text = status.oemFamily.displayNameArabic,
-                    color = Color(0xFF38BDF8),
+                    color = QuranColors.GoldBadgeText,
                     fontSize = 12.sp
                 )
             }
@@ -65,21 +65,22 @@ fun OemSetupWizardDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    colors = CardDefaults.cardColors(containerColor = QuranColors.BgElevated),
+                    border = BorderStroke(1.dp, QuranColors.BorderSubtle),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
                         text = status.oemFamily.guidanceArabic,
-                        color = Color(0xFFCBD5E1),
+                        color = QuranColors.TextSecondary,
                         fontSize = 12.sp,
+                        lineHeight = 18.sp,
                         modifier = Modifier.padding(12.dp)
                     )
                 }
 
                 Text(
                     text = "قسم أساسي (مطلوب لعمل المنبه الصارم)",
-                    color = Color(0xFF38BDF8),
+                    color = QuranColors.ActivePillText,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -109,7 +110,7 @@ fun OemSetupWizardDialog(
 
                 Text(
                     text = "قسم تحسين الأداء (اختياري)",
-                    color = Color(0xFF94A3B8),
+                    color = QuranColors.TextSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -136,7 +137,8 @@ fun OemSetupWizardDialog(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8))
+                        border = BorderStroke(1.dp, QuranColors.BorderSubtle),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = QuranColors.ActivePillText)
                     ) {
                         Text("فتح إعدادات التشغيل التلقائي للشركة المصنعة", fontSize = 12.sp)
                     }
@@ -146,9 +148,12 @@ fun OemSetupWizardDialog(
         confirmButton = {
             Button(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = QuranColors.CtaBg,
+                    contentColor = QuranColors.CtaText
+                )
             ) {
-                Text("تم", fontWeight = FontWeight.Bold)
+                Text("تم", fontWeight = FontWeight.SemiBold)
             }
         }
     )
@@ -162,7 +167,8 @@ private fun ReadinessStepRow(
     onAction: () -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+        colors = CardDefaults.cardColors(containerColor = QuranColors.BgElevated),
+        border = BorderStroke(1.dp, QuranColors.BorderSubtle),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -176,19 +182,19 @@ private fun ReadinessStepRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    color = Color.White,
+                    color = QuranColors.TextPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = if (isGranted) "مفعّل ✓" else "يتطلب تفعيل",
-                    color = if (isGranted) Color(0xFF10B981) else Color(0xFFF59E0B),
+                    color = if (isGranted) QuranColors.ActivePillText else QuranColors.WarningOrange,
                     fontSize = 11.sp
                 )
             }
             if (!isGranted) {
                 TextButton(onClick = onAction) {
-                    Text(actionLabel, color = Color(0xFF38BDF8), fontSize = 12.sp)
+                    Text(actionLabel, color = QuranColors.ActivePillText, fontSize = 12.sp)
                 }
             }
         }

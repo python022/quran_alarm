@@ -25,8 +25,10 @@ import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
@@ -37,6 +39,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,6 +61,7 @@ import com.quran.alarm.alarm.domain.model.QuranStructure
 import com.quran.alarm.alarm.ui.viewmodel.AlarmAlertStage
 import com.quran.alarm.alarm.ui.viewmodel.MushafReaderUiState
 import com.quran.alarm.quran.ui.QuranPageView
+import com.quran.alarm.ui.theme.QuranColors
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -71,7 +75,10 @@ fun AlarmAlertScreen(
     onJumpToIncompletePage: () -> Unit = onPrevPage,
     onStartReading: () -> Unit,
     onSnooze: () -> Unit,
-    onDismissAlarm: () -> Unit
+    onDismissAlarm: () -> Unit,
+    onRetryLoad: () -> Unit = {},
+    onEmergencyExit: () -> Unit = {},
+    onExitPreview: () -> Unit = {}
 ) {
     val topSafeInsets = WindowInsets.statusBarsIgnoringVisibility.union(WindowInsets.displayCutout)
     val bottomSafeInsets = WindowInsets.navigationBarsIgnoringVisibility
@@ -85,75 +92,88 @@ fun AlarmAlertScreen(
         ) {
             // Top Reader Bar
             Surface(
-                color = Color(0xFF1E293B),
+                color = QuranColors.BgElevated,
                 shadowElevation = 4.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(topSafeInsets)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val canGoPrev = uiState.hasPrevPageInWird && !uiState.isLoading
-                    OutlinedButton(
-                        onClick = onPrevPage,
-                        enabled = canGoPrev,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(topSafeInsets)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = "السابقة",
-                            tint = if (canGoPrev) Color.White else Color(0xFF64748B),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("السابقة", fontSize = 12.sp)
-                    }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (uiState.isAyahMode) {
-                            val surah = QuranStructure.getSurahByNumber(uiState.wirdSurahNumber!!)
-                            Text(
-                                text = "سورة ${surah.nameArabic} • آية ${uiState.startAyah} - ${uiState.endAyah}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = Color(0xFF38BDF8)
+                        val canGoPrev = uiState.hasPrevPageInWird && !uiState.isLoading
+                        OutlinedButton(
+                            onClick = onPrevPage,
+                            enabled = canGoPrev,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowForward,
+                                contentDescription = "السابقة",
+                                tint = if (canGoPrev) Color.White else Color(0xFF64748B),
+                                modifier = Modifier.size(16.dp)
                             )
-                        } else {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("السابقة", fontSize = 12.sp)
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (uiState.isAyahMode) {
+                                val surah = QuranStructure.getSurahByNumber(uiState.wirdSurahNumber!!)
+                                Text(
+                                    text = "سورة ${surah.nameArabic} • آية ${uiState.startAyah} - ${uiState.endAyah}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            } else {
+                                Text(
+                                    text = "صفحة ${uiState.currentPage} من 604",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
                             Text(
-                                text = "صفحة ${uiState.currentPage} من 604",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = Color(0xFF38BDF8)
+                                text = "ص ${uiState.currentPage} • السطر ${uiState.activeLine} من ${uiState.lastReadableLineOnPage}",
+                                fontSize = 12.sp,
+                                color = Color(0xFF10B981)
                             )
                         }
-                        Text(
-                            text = "ص ${uiState.currentPage} • السطر ${uiState.activeLine} من ${uiState.lastReadableLineOnPage}",
-                            fontSize = 12.sp,
-                            color = Color(0xFF10B981)
-                        )
+
+                        val canGoNext = uiState.canNavigateNextInAlert && !uiState.isLoading
+                        OutlinedButton(
+                            onClick = onNextPage,
+                            enabled = canGoNext,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Text("التالية", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "التالية",
+                                tint = if (canGoNext) Color.White else Color(0xFF64748B),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
 
-                    val canGoNext = uiState.canNavigateNextInAlert && !uiState.isLoading
-                    OutlinedButton(
-                        onClick = onNextPage,
-                        enabled = canGoNext,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                    ) {
-                        Text("التالية", fontSize = 12.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "التالية",
-                            tint = if (canGoNext) Color.White else Color(0xFF64748B),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
+                    val totalWirdPages = uiState.wirdPages.size.coerceAtLeast(1)
+                    val sessionProgress = (uiState.completedPages.size.toFloat() / totalWirdPages.toFloat()).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = sessionProgress,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp),
+                        color = QuranColors.CtaBg,
+                        trackColor = QuranColors.BorderSubtle
+                    )
                 }
             }
 
@@ -163,42 +183,109 @@ fun AlarmAlertScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                QuranPageView(
-                    pageNumber = uiState.currentPage,
-                    pageBitmap = uiState.currentBitmap,
-                    lines = uiState.currentLines,
-                    activeLine = uiState.activeLine,
-                    onLineClicked = { line ->
-                        if (!uiState.isLoading) {
-                            onLineClicked(line)
+                if (uiState.loadError != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF0F172A))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = uiState.loadError,
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                                Button(
+                                    onClick = onRetryLoad,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("إعادة المحاولة", fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                }
+                                OutlinedButton(
+                                    onClick = onEmergencyExit,
+                                    border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("تأجيل 5 دقائق والخروج الآمن", color = Color(0xFFFBBF24))
+                                }
+                            }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                    }
+                } else {
+                    QuranPageView(
+                        pageNumber = uiState.currentPage,
+                        pageBitmap = uiState.currentBitmap,
+                        lines = uiState.currentLines,
+                        activeLine = uiState.activeLine,
+                        onLineClicked = { line ->
+                            if (!uiState.isLoading) {
+                                onLineClicked(line)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
 
             // Bottom Actions Control Bar (clears system 3-button Home & gesture bars even in immersive mode)
             Surface(
-                color = Color(0xFF0F172A),
+                color = QuranColors.BgPrimary,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .windowInsetsPadding(bottomSafeInsets)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val atEndWithoutFullCompletion = !uiState.isDismissEnabled &&
                         !uiState.hasNextPageInWird &&
                         uiState.activeLine >= uiState.lastReadableLineOnPage
 
                     when {
+                        uiState.loadError != null -> {
+                            Button(
+                                onClick = onEmergencyExit,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                            ) {
+                                Text(
+                                    text = "تأجيل 5 دقائق والخروج الآمن",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color(0xFFFBBF24)
+                                )
+                            }
+                        }
+
                         uiState.isDismissEnabled -> {
                             Button(
                                 onClick = onDismissAlarm,
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF10B981)
+                                    containerColor = QuranColors.CtaBg,
+                                    contentColor = QuranColors.CtaText
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -207,7 +294,7 @@ fun AlarmAlertScreen(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = QuranColors.CtaText,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -215,7 +302,7 @@ fun AlarmAlertScreen(
                                     text = "إتمام الورد المبارك والخروج",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
-                                    color = Color.White
+                                    color = QuranColors.CtaText
                                 )
                             }
                         }
@@ -280,6 +367,17 @@ fun AlarmAlertScreen(
                             }
                         }
                     }
+
+                    if (uiState.alarmId < 0) {
+                        OutlinedButton(
+                            onClick = onExitPreview,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("إنهاء المعاينة", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }
@@ -289,7 +387,8 @@ fun AlarmAlertScreen(
             topSafeInsets = topSafeInsets,
             bottomSafeInsets = bottomSafeInsets,
             onStartReading = onStartReading,
-            onSnooze = onSnooze
+            onSnooze = onSnooze,
+            onExitPreview = onExitPreview
         )
     }
 }
@@ -300,7 +399,8 @@ private fun RingingStageContent(
     topSafeInsets: WindowInsets,
     bottomSafeInsets: WindowInsets,
     onStartReading: () -> Unit,
-    onSnooze: () -> Unit
+    onSnooze: () -> Unit,
+    onExitPreview: () -> Unit
 ) {
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -326,6 +426,7 @@ private fun RingingStageContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .windowInsetsPadding(topSafeInsets)
             .windowInsetsPadding(bottomSafeInsets)
             .padding(horizontal = 24.dp, vertical = 24.dp),
@@ -336,6 +437,21 @@ private fun RingingStageContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(top = 20.dp)
         ) {
+            if (uiState.alarmId < 0) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF38BDF8).copy(alpha = 0.16f),
+                    modifier = Modifier.padding(bottom = 10.dp)
+                ) {
+                    Text(
+                        text = "معاينة تجريبية",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
+            }
             Text(
                 text = AlarmUiFormatters.formatCurrentDate(currentTimeMillis),
                 fontSize = 18.sp,
@@ -375,7 +491,8 @@ private fun RingingStageContent(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
+            colors = CardDefaults.cardColors(containerColor = QuranColors.BgCard),
+            border = BorderStroke(1.dp, QuranColors.BorderSubtle)
         ) {
             Column(
                 modifier = Modifier
@@ -387,7 +504,7 @@ private fun RingingStageContent(
                     text = uiState.alarmLabel,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = QuranColors.TextPrimary,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -397,30 +514,46 @@ private fun RingingStageContent(
                         text = "ورد اليوم: سورة ${surah.nameArabic} (الآيات ${uiState.startAyah} - ${uiState.endAyah})",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF38BDF8),
+                        color = QuranColors.GoldBadgeText,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(4.dp))
+                    val pagesLabel = if (uiState.startPage == uiState.endPage) {
+                        "صفحة ${uiState.startPage} (صفحة واحدة)"
+                    } else {
+                        "صفحة ${uiState.startPage} إلى ${uiState.endPage}"
+                    }
                     Text(
-                        text = "(${uiState.dailyAyahCount} آية • صفحة ${uiState.startPage} إلى ${uiState.endPage})",
+                        text = "(${AlarmUiFormatters.formatAyahsCount(uiState.dailyAyahCount ?: 1)} • $pagesLabel)",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF10B981)
+                        color = QuranColors.ActivePillText
                     )
                 } else {
+                    val titleText = if (uiState.pageCount == 1) {
+                        val surah = QuranStructure.getSurahAtPage(uiState.startPage)
+                        "ورد اليوم: سورة ${surah.nameArabic} • صفحة ${uiState.startPage}"
+                    } else {
+                        "ورد اليوم: صفحة ${uiState.startPage} إلى ${uiState.endPage}"
+                    }
+                    val countText = if (uiState.pageCount == 1) {
+                        "(صفحة واحدة)"
+                    } else {
+                        "(${AlarmUiFormatters.formatPagesCount(uiState.pageCount)} متتالية)"
+                    }
                     Text(
-                        text = "ورد اليوم: صفحة ${uiState.startPage} إلى ${uiState.endPage}",
+                        text = titleText,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF38BDF8),
+                        color = QuranColors.GoldBadgeText,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "(${uiState.pageCount} صفحات متتالية)",
+                        text = countText,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF10B981)
+                        color = QuranColors.ActivePillText
                     )
                 }
             }
@@ -437,13 +570,16 @@ private fun RingingStageContent(
                     .fillMaxWidth()
                     .height(60.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = QuranColors.CtaBg,
+                    contentColor = QuranColors.CtaText
+                )
             ) {
                 Text(
                     text = "📖 بدء قراءة الورد",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = QuranColors.CtaText
                 )
             }
 
@@ -467,6 +603,23 @@ private fun RingingStageContent(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (uiState.isDismissedOrSnoozed) Color(0xFF94A3B8) else Color(0xFFE2E8F0)
+                    )
+                }
+            }
+
+            if (uiState.alarmId < 0) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onExitPreview,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                    modifier = Modifier.fillMaxWidth(0.65f)
+                ) {
+                    Text(
+                        text = "إنهاء المعاينة",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8)
                     )
                 }
             }

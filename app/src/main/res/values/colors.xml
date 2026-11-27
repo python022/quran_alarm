@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_primary">#0B1117</color>
+    <color name="bg_card">#121820</color>
+    <color name="bg_elevated">#16202A</color>
+    <color name="border_subtle">#1F2D3D</color>
+    <color name="cta_bg">#1AD699</color>
+    <color name="cta_text">#071A14</color>
+    <color name="pill_active_bg">#142E28</color>
+    <color name="gold_bg">#1B2229</color>
+    <color name="gold_border">#2D3741</color>
+    <color name="gold_text">#D4AF37</color>
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="text_muted">#64748B</color>
+</resources>

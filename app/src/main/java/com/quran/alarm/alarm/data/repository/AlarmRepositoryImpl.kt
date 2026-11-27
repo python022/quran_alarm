@@ -63,11 +63,13 @@ class AlarmRepositoryImpl(
 
     override fun getAllAlarms(): List<AlarmItem> {
         synchronized(repoLock) {
-            val ids = getStoredIds()
-            return ids.mapNotNull { idStr ->
-                val id = idStr.toIntOrNull() ?: return@mapNotNull null
+            val normalizedIds = getStoredIds()
+                .mapNotNull { it.trim().toIntOrNull() }
+                .toSet()
+            return normalizedIds.mapNotNull { id ->
                 readAlarm(id)
-            }.sortedWith(compareBy({ it.hour }, { it.minute }, { it.id }))
+            }.distinctBy { it.id }
+                .sortedWith(compareBy({ it.hour }, { it.minute }, { it.id }))
         }
     }
 
@@ -102,7 +104,7 @@ class AlarmRepositoryImpl(
         }
     }
 
-    fun cleanupOrphanedCustomSounds() {
+    override fun cleanupOrphanedCustomSounds() {
         val referencedUris = getAllAlarms().mapNotNull { it.soundUri }.toSet()
         CustomSoundStorage.cleanupOrphanedSounds(storageContext, referencedUris)
     }
@@ -258,6 +260,7 @@ class AlarmRepositoryImpl(
     }
 
     private fun getStoredIds(): Set<String> {
-        return prefs.getStringSet(KEY_ALARM_IDS, emptySet()) ?: emptySet()
+        val raw = prefs.getStringSet(KEY_ALARM_IDS, null) ?: return emptySet()
+        return HashSet(raw)
     }
 }

@@ -37,7 +37,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/Theme.QuranAlarm">
 
         <activity
             android:name=".MainActivity"
@@ -52,6 +52,7 @@
             android:name=".ui.AlarmAlertActivity"
             android:exported="false"
             android:directBootAware="true"
+            android:screenOrientation="portrait"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:excludeFromRecents="true"

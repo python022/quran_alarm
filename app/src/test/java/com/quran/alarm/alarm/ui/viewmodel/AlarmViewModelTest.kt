@@ -240,6 +240,46 @@ class AlarmViewModelTest {
         assertEquals(100, progress!!.currentStartPage)
     }
 
+    @Test
+    fun khatmaProgress_sumsDailyPagesAcrossAllEnabledSequentialAlarms() = runTest(testDispatcher) {
+        val fajr = AlarmItem(id = 1, hour = 5, minute = 0, startPage = 1, pageCount = 2, isSequential = true, isEnabled = true)
+        val dhuhr = AlarmItem(id = 2, hour = 13, minute = 0, startPage = 10, pageCount = 3, isSequential = true, isEnabled = true)
+        val maghrib = AlarmItem(id = 3, hour = 18, minute = 0, startPage = 20, pageCount = 5, isSequential = true, isEnabled = true)
+        val disabledSeq = AlarmItem(id = 4, hour = 20, minute = 0, startPage = 30, pageCount = 10, isSequential = true, isEnabled = false)
+
+        fakeRepository.saveAlarm(fajr)
+        fakeRepository.saveAlarm(dhuhr)
+        fakeRepository.saveAlarm(maghrib)
+        fakeRepository.saveAlarm(disabledSeq)
+
+        viewModel = AlarmViewModel(fakeRepository, fakeScheduler, testDispatcher)
+        advanceUntilIdle()
+
+        val progress = viewModel.uiState.value.khatmaProgress
+        assertNotNull(progress)
+        // Total enabled sequential pages = 2 + 3 + 5 = 10 pages/day; ceil(604 / 10) = 61 days
+        assertEquals(10, progress!!.dailyPages)
+        assertEquals(61, progress.daysToComplete)
+    }
+
+    @Test
+    fun loadAlarms_deduplicatesAlarmsById() = runTest(testDispatcher) {
+        val dupRepo = object : AlarmRepository {
+            private val a = AlarmItem(id = 7, hour = 5, minute = 0)
+            override fun getAllAlarms(): List<AlarmItem> = listOf(a, a.copy())
+            override fun getActiveAlarms(): List<AlarmItem> = listOf(a)
+            override fun getAlarmById(id: Int): AlarmItem? = if (id == 7) a else null
+            override fun saveAlarm(alarm: AlarmItem) {}
+            override fun deleteAlarm(id: Int) {}
+        }
+
+        viewModel = AlarmViewModel(dupRepo, fakeScheduler, testDispatcher)
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.alarms.size)
+        assertEquals(7, viewModel.uiState.value.alarms.first().id)
+    }
+
     // Test Fakes
     private class FakeAlarmRepository : AlarmRepository {
         private val storage = mutableMapOf<Int, AlarmItem>()

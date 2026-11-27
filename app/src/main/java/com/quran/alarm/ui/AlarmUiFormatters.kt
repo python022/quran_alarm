@@ -1,7 +1,11 @@
 package com.quran.alarm.ui
 
+import com.quran.alarm.alarm.domain.model.AlarmItem
+import com.quran.alarm.alarm.domain.model.AlarmSoundPresets
+import com.quran.alarm.alarm.domain.model.QuranStructure
 import java.util.Calendar
 import java.util.Locale
+import kotlin.math.ceil
 
 /**
  * Pure formatters for Alarm UI presentation in Arabic.
@@ -37,15 +41,144 @@ object AlarmUiFormatters {
         return "$hour12:$minuteFormatted $period"
     }
 
+    fun formatDigits12HourPadded(hour24: Int, minute: Int): String {
+        val hour12 = getHour12(hour24)
+        return String.format(Locale.US, "%02d:%02d", hour12, minute)
+    }
+
+    fun getPeriodLabel(hour24: Int): String {
+        return if (isAm(hour24)) "ص" else "م"
+    }
+
+    fun formatCompactSoundTitle(rawTitle: String?): String {
+        val trimmed = rawTitle?.trim()
+        if (trimmed.isNullOrEmpty() || trimmed == "نغمة المنبه الافتراضية") {
+            return "النغمة الافتراضية"
+        }
+        return trimmed
+    }
+
+    fun formatHoursCount(hours: Int, genitive: Boolean = true): String {
+        return when {
+            hours == 1 -> "ساعة واحدة"
+            hours == 2 -> if (genitive) "ساعتين" else "ساعتان"
+            hours in 3..10 -> "$hours ساعات"
+            else -> "$hours ساعة"
+        }
+    }
+
+    fun formatMinutesCount(minutes: Int, genitive: Boolean = true): String {
+        return when {
+            minutes == 1 -> "دقيقة واحدة"
+            minutes == 2 -> if (genitive) "دقيقتين" else "دقيقتان"
+            minutes in 3..10 -> "$minutes دقائق"
+            else -> "$minutes دقيقة"
+        }
+    }
+
+    fun formatDaysCount(days: Int, genitive: Boolean = true): String {
+        return when {
+            days == 1 -> "يوم واحد"
+            days == 2 -> if (genitive) "يومين" else "يومان"
+            days in 3..10 -> "$days أيام"
+            days % 100 in 11..99 -> "$days يوماً"
+            else -> "$days يوم"
+        }
+    }
+
+    fun formatPagesCount(pages: Int): String {
+        return when {
+            pages == 1 -> "صفحة واحدة"
+            pages == 2 -> "صفحتان"
+            pages in 3..10 -> "$pages صفحات"
+            else -> "$pages صفحة"
+        }
+    }
+
+    fun formatAyahsCount(ayahs: Int): String {
+        return when {
+            ayahs == 1 -> "آية واحدة"
+            ayahs == 2 -> "آيتان"
+            ayahs in 3..10 -> "$ayahs آيات"
+            else -> "$ayahs آية"
+        }
+    }
+
+    fun formatEstimatedReadingTime(
+        pageCount: Int,
+        ayahCount: Int? = null,
+        surahTotalAyahs: Int? = null
+    ): String {
+        val safePages = pageCount.coerceAtLeast(1)
+        val totalMinutes = if (ayahCount != null && surahTotalAyahs != null && surahTotalAyahs > 0) {
+            val ratio = (ayahCount.toDouble() / surahTotalAyahs.toDouble()).coerceIn(0.05, 1.0)
+            ceil(safePages * 2.0 * ratio).toInt().coerceAtLeast(1)
+        } else {
+            (safePages * 2).coerceAtLeast(1)
+        }
+        val hours = totalMinutes / 60
+        val mins = totalMinutes % 60
+        return when {
+            hours == 0 -> "حوالي ${formatMinutesCount(mins, genitive = true)}"
+            mins == 0 -> "حوالي ${formatHoursCount(hours, genitive = true)}"
+            else -> "حوالي ${formatHoursCount(hours, genitive = true)} و ${formatMinutesCount(mins, genitive = true)}"
+        }
+    }
+
+    fun formatPageRangeSummary(startPage: Int, endPage: Int): String {
+        val safeStart = startPage.coerceIn(1, QuranStructure.TOTAL_PAGES)
+        val safeEnd = endPage.coerceIn(1, QuranStructure.TOTAL_PAGES)
+        if (safeStart == safeEnd) {
+            val surah = QuranStructure.getSurahAtPage(safeStart)
+            return "سورة ${surah.nameArabic} • صفحة $safeStart (صفحة واحدة)"
+        }
+        val count = if (safeEnd >= safeStart) {
+            safeEnd - safeStart + 1
+        } else {
+            QuranStructure.computePageCount(safeStart, safeEnd)
+        }
+        return "من ص $safeStart إلى ص $safeEnd (${formatPagesCount(count)})"
+    }
+
+    fun formatWirdCardSummary(alarm: AlarmItem): String {
+        if (alarm.isAyahMode) {
+            val surah = QuranStructure.getSurahByNumber(alarm.wirdSurahNumber!!)
+            val sAyah = alarm.startAyah ?: 1
+            val eAyah = alarm.endAyah ?: sAyah
+            return if (sAyah == eAyah) {
+                "سورة ${surah.nameArabic} • آية $sAyah (آية واحدة)"
+            } else {
+                "سورة ${surah.nameArabic} • آية $sAyah-$eAyah (${formatAyahsCount(alarm.dailyAyahCount!!)})"
+            }
+        }
+        val surahAtStart = QuranStructure.getSurahAtPage(alarm.startPage)
+        return if (alarm.pageCount == 1) {
+            "سورة ${surahAtStart.nameArabic} • صفحة ${alarm.startPage}"
+        } else {
+            "سورة ${surahAtStart.nameArabic} • ص ${alarm.startPage}-${alarm.endPage} (${formatPagesCount(alarm.pageCount)})"
+        }
+    }
+
+    fun getDefaultWorkdays(locale: Locale = Locale.getDefault()): Set<Int> {
+        val firstDay = Calendar.getInstance(locale).firstDayOfWeek
+        return if (firstDay == Calendar.MONDAY) {
+            setOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY)
+        } else {
+            setOf(Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY)
+        }
+    }
+
     fun formatRepeatDays(repeatDays: Set<Int>): String {
         if (repeatDays.isEmpty()) return "مرة واحدة"
         if (repeatDays.size == 7) return "كل يوم"
 
-        val weekdays = setOf(Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY)
-        if (repeatDays == weekdays) return "وسط أيام الأسبوع"
+        val sunThuWorkdays = setOf(Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY)
+        val monFriWorkdays = setOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY)
+        if (repeatDays == sunThuWorkdays || repeatDays == monFriWorkdays) return "وسط أيام الأسبوع"
 
-        val weekend = setOf(Calendar.FRIDAY, Calendar.SATURDAY)
-        if (repeatDays == weekend) return "نهاية الأسبوع"
+        val friSatWeekend = setOf(Calendar.FRIDAY, Calendar.SATURDAY)
+        val satSunWeekend = setOf(Calendar.SATURDAY, Calendar.SUNDAY)
+        if (repeatDays == friSatWeekend || repeatDays == satSunWeekend) return "نهاية الأسبوع"
 
         val orderedDays = listOf(
             Calendar.SATURDAY,
@@ -97,18 +230,26 @@ object AlarmUiFormatters {
             0
         }
 
-        val hours = totalMinutes / 60
+        val days = totalMinutes / (24 * 60)
+        val remHours = (totalMinutes / 60) % 24
         val minutes = totalMinutes % 60
 
         val prefix = if (!targetDayName.isNullOrBlank()) "المنبه يوم $targetDayName خلال" else "المنبه خلال"
 
+        if (days > 0) {
+            val parts = buildList {
+                add(formatDaysCount(days, genitive = true))
+                if (remHours > 0) add(formatHoursCount(remHours, genitive = true))
+                if (minutes > 0) add(formatMinutesCount(minutes, genitive = true))
+            }
+            return "$prefix ${parts.joinToString(" و ")}"
+        }
+
         return when {
-            hours == 0 && totalMinutes == 0 -> "$prefix أقل من دقيقة"
-            hours == 0 && totalMinutes == 1 -> "$prefix دقيقة واحدة"
-            hours == 0 && totalMinutes == 2 -> "$prefix دقيقتين"
-            hours == 0 -> "$prefix $minutes دقيقة"
-            minutes == 0 -> "$prefix $hours ساعة"
-            else -> "$prefix $hours ساعة و $minutes دقيقة"
+            remHours == 0 && totalMinutes == 0 -> "$prefix أقل من دقيقة"
+            remHours == 0 -> "$prefix ${formatMinutesCount(totalMinutes, genitive = true)}"
+            minutes == 0 -> "$prefix ${formatHoursCount(remHours, genitive = true)}"
+            else -> "$prefix ${formatHoursCount(remHours, genitive = true)} و ${formatMinutesCount(minutes, genitive = true)}"
         }
     }
 

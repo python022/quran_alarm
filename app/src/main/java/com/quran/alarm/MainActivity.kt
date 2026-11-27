@@ -15,14 +15,12 @@ import androidx.activity.viewModels
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.quran.alarm.alarm.data.device.OemDeviceHelper
@@ -30,7 +28,10 @@ import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
 import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
 import com.quran.alarm.alarm.ui.viewmodel.AlarmViewModel
 import com.quran.alarm.alarm.ui.viewmodel.AlarmViewModelFactory
+import com.quran.alarm.ui.components.AddEditAlarmScreen
 import com.quran.alarm.ui.components.AlarmListScreen
+import com.quran.alarm.ui.theme.QuranAlarmTheme
+import com.quran.alarm.ui.theme.QuranColors
 import kotlinx.coroutines.delay
 
 /**
@@ -51,6 +52,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private var pendingGuidedStep: GuidedPermissionStep? = null
+    private var hasResumedOnce: Boolean = false
 
     private val viewModel: AlarmViewModel by viewModels {
         AlarmViewModelFactory(
@@ -98,27 +100,30 @@ class MainActivity : ComponentActivity() {
             }
 
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                MaterialTheme {
+                QuranAlarmTheme {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
-                        color = Color(0xFF0F172A)
+                        color = QuranColors.BgPrimary
                     ) {
-                        AlarmListScreen(
-                            uiState = uiState,
-                            onAddClick = { viewModel.openAddDialog() },
-                            onAlarmClick = { alarm -> viewModel.openEditDialog(alarm) },
-                            onToggleAlarm = { alarm, isEnabled ->
-                                viewModel.toggleAlarm(alarm, isEnabled)
-                            },
-                            onDeleteConfirmed = { alarmId ->
-                                viewModel.deleteAlarm(alarmId)
-                            },
-                            onSaveAlarm = { alarm ->
-                                viewModel.saveAlarm(alarm)
-                            },
-                            onDismissDialog = { viewModel.dismissDialog() },
-                            onFixMissingCorePermission = { startGuidedCorePermissionFlow() }
-                        )
+                        if (uiState.isAddEditDialogOpen) {
+                            AddEditAlarmScreen(
+                                alarmToEdit = uiState.editingAlarm,
+                                existingAlarmIds = uiState.alarms.map { it.id }.toSet(),
+                                onDismiss = { viewModel.dismissDialog() },
+                                onSave = { alarm -> viewModel.saveAlarm(alarm) },
+                                onDelete = { alarmId -> viewModel.deleteAlarm(alarmId) }
+                            )
+                        } else {
+                            AlarmListScreen(
+                                uiState = uiState,
+                                onAddClick = { viewModel.openAddDialog() },
+                                onAlarmClick = { alarm -> viewModel.openEditDialog(alarm) },
+                                onToggleAlarm = { alarm, isEnabled ->
+                                    viewModel.toggleAlarm(alarm, isEnabled)
+                                },
+                                onFixMissingCorePermission = { startGuidedCorePermissionFlow() }
+                            )
+                        }
                     }
                 }
             }
@@ -132,7 +137,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.loadAlarms()
+        if (hasResumedOnce) {
+            viewModel.loadAlarms()
+        } else {
+            hasResumedOnce = true
+        }
         viewModel.checkOverlayPermission(this)
 
         val step = pendingGuidedStep

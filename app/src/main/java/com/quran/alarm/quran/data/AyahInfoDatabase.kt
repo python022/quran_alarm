@@ -47,12 +47,28 @@ class AyahInfoDatabase(
         }
 
         private fun hasSqliteHeader(file: File): Boolean {
-            if (!file.exists() || file.length() != EXPECTED_DB_SIZE) return false
+            if (!file.exists() || file.length() < 100_000L) return false
             return try {
                 file.inputStream().use { input ->
                     val magic = ByteArray(15)
                     val read = input.read(magic)
                     read == 15 && String(magic, Charsets.US_ASCII) == "SQLite format 3"
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        private fun hasGlyphsTable(file: File): Boolean {
+            if (!hasSqliteHeader(file)) return false
+            return try {
+                SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                    db.rawQuery(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='glyphs' LIMIT 1",
+                        null
+                    ).use { cursor ->
+                        cursor.moveToFirst()
+                    }
                 }
             } catch (_: Exception) {
                 false
@@ -69,9 +85,10 @@ class AyahInfoDatabase(
         fun getInstance(context: Context): AyahInfoDatabase {
             return instance ?: synchronized(this) {
                 instance ?: run {
-                    val storageContext = resolveStorageContext(context)
+                    val appContext = context.applicationContext ?: context
+                    val storageContext = DirectBootStorageHelper.resolveStorageContext(appContext)
                     val targetFile = storageContext.getDatabasePath(DB_NAME)
-                    AyahInfoDatabase(targetFile, storageContext).also { instance = it }
+                    AyahInfoDatabase(targetFile, appContext).also { instance = it }
                 }
             }
         }
@@ -95,7 +112,7 @@ class AyahInfoDatabase(
                         input.copyTo(output)
                     }
                 }
-                if (hasSqliteHeader(tmpFile)) {
+                if (hasGlyphsTable(tmpFile)) {
                     val renamed = tmpFile.renameTo(targetFile)
                     if (!renamed) {
                         tmpFile.copyTo(targetFile, overwrite = true)
@@ -120,10 +137,15 @@ class AyahInfoDatabase(
         if (current != null && current.isOpen) {
             return current
         }
-        if (context != null) {
-            ensureExtracted(context, dbFile)
+        val activeDbFile = if (context != null) {
+            val storageContext = resolveStorageContext(context)
+            val resolvedFile = storageContext.getDatabasePath(DB_NAME)
+            ensureExtracted(storageContext, resolvedFile)
+            resolvedFile
+        } else {
+            dbFile
         }
-        val opened = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+        val opened = SQLiteDatabase.openDatabase(activeDbFile.path, null, SQLiteDatabase.OPEN_READONLY)
         sqliteDb = opened
         return opened
     }

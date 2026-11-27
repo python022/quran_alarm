@@ -14,4 +14,5 @@ interface AlarmRepository {
     fun getActiveAlarms(): List<AlarmItem>
     fun getAlarmById(id: Int): AlarmItem?
     fun deleteAlarm(id: Int)
+    fun cleanupOrphanedCustomSounds() {}
 }

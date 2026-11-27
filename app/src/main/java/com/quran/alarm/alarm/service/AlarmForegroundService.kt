@@ -11,7 +11,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.quran.alarm.R
@@ -27,6 +26,7 @@ import com.quran.alarm.ui.AlarmAlertActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -66,7 +66,6 @@ class AlarmForegroundService : Service() {
         private const val WAKE_LOCK_TIMEOUT_MS = 10 * 60 * 1000L
         private const val WAKE_LOCK_RENEW_INTERVAL_MS = 5 * 60 * 1000L
         private const val DEFERRED_SNOOZE_MS = 5 * 60_000L
-        private const val FULL_SCREEN_FALLBACK_DELAY_MS = 800L
 
         @Volatile
         var isAlarmRingingGlobally: Boolean = false
@@ -86,6 +85,98 @@ class AlarmForegroundService : Service() {
             isReadingSessionActiveGlobally = false
             activeSessionAlarmId = null
         }
+
+        fun ensureNotificationChannels(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    CHANNEL_NAME,
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "قناة إشعارات رنين منبه القرآن الكريم فائقة الأولوية"
+                    setBypassDnd(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    enableVibration(true)
+                    setSound(null, null)
+                }
+                val ongoingChannel = NotificationChannel(
+                    CHANNEL_ONGOING_ID,
+                    CHANNEL_ONGOING_NAME,
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "إشعار صامت عند فتح شاشة المنبه أو أثناء قراءة الورد"
+                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+                    enableVibration(false)
+                    setSound(null, null)
+                    setShowBadge(false)
+                }
+                val manager = context.getSystemService(NotificationManager::class.java)
+                manager?.createNotificationChannel(channel)
+                manager?.createNotificationChannel(ongoingChannel)
+            }
+        }
+
+        fun buildServiceNotification(
+            context: Context,
+            payload: AlarmAlertPayload,
+            isReading: Boolean,
+            silentOngoing: Boolean
+        ): Notification {
+            val endPage = AlarmAlertIntentFactory.computeEndPage(payload.startPage, payload.pageCount)
+            val alertIntent = AlarmAlertIntentFactory.buildAlertIntent(
+                context = context,
+                alarmId = payload.alarmId,
+                label = payload.label,
+                targetPage = payload.startPage,
+                startPage = payload.startPage,
+                pageCount = payload.pageCount,
+                isSnoozeEnabled = true,
+                isFreshTrigger = false,
+                wirdSurahNumber = payload.wirdSurahNumber,
+                startAyah = payload.startAyah,
+                dailyAyahCount = payload.dailyAyahCount
+            )
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                payload.alarmId + 300_000,
+                alertIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val title = if (isReading) "قراءة الورد القرآني جارية" else "منبه القرآن الكريم"
+            val text = if (isReading) {
+                "${payload.label} - صفحة ${payload.startPage} إلى $endPage"
+            } else {
+                "${payload.label} - الورد: صفحة ${payload.startPage} إلى $endPage"
+            }
+            val channelId = if (silentOngoing) CHANNEL_ONGOING_ID else CHANNEL_ID
+
+            val builder = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.ic_stat_quran_alarm)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setOngoing(true)
+                .setAutoCancel(false)
+                .setContentIntent(pendingIntent)
+
+            if (silentOngoing) {
+                builder
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setVisibility(if (isReading) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_PRIVATE)
+                    .setSilent(true)
+                    .setOnlyAlertOnce(true)
+            } else {
+                builder
+                    .setPriority(if (isReading) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_MAX)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                if (isReading) {
+                    builder.setOnlyAlertOnce(true)
+                } else {
+                    builder.setFullScreenIntent(pendingIntent, true)
+                }
+            }
+            return builder.build()
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -94,8 +185,8 @@ class AlarmForegroundService : Service() {
     private lateinit var volumeEnforcer: VolumeEnforcer
     private lateinit var sessionStore: AlarmSessionStore
 
-    private var serviceJob = Job()
-    private var serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
     private var isAlarmRinging = false
     private var isSessionActive = false
     private var isAudioDeferredByCall = false
@@ -104,7 +195,6 @@ class AlarmForegroundService : Service() {
     private var activeIsVibrate: Boolean = true
     private var activePayload: AlarmAlertPayload? = null
     private var watchdogJob: Job? = null
-    private var highPriorityFallbackJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -114,132 +204,27 @@ class AlarmForegroundService : Service() {
         vibratorManager = AlarmVibratorManager(this)
         volumeEnforcer = VolumeEnforcer(this)
         sessionStore = AlarmSessionStore.fromContext(this)
-        createNotificationChannel()
+        ensureNotificationChannels(this)
         acquireWakeLock()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null || intent.action == ACTION_RESTORE_SESSION) {
-            val restored = sessionStore.loadSession()
-            if (restored != null && restored.alarmId >= 0) {
-                activeSessionAlarmId = restored.alarmId
-                activeSoundUri = restored.soundUri
-                activeVolumeLevel = restored.volumeLevel
-                activeIsVibrate = restored.isVibrate
-                activePayload = AlarmAlertPayload(
-                    alarmId = restored.alarmId,
-                    label = restored.label,
-                    targetPage = restored.startPage,
-                    startPage = restored.startPage,
-                    pageCount = restored.pageCount,
-                    volumeLevel = restored.volumeLevel,
-                    isVibrate = restored.isVibrate,
-                    soundUri = restored.soundUri,
-                    isSnoozeTrigger = false,
-                    isSnoozeEnabled = true,
-                    isFreshTrigger = false,
-                    wirdSurahNumber = restored.wirdSurahNumber,
-                    startAyah = restored.startAyah,
-                    dailyAyahCount = restored.dailyAyahCount
-                )
-                if (restored.stage == AlarmSessionStore.STAGE_RINGING) {
-                    isAlarmRingingGlobally = true
-                    isReadingSessionActiveGlobally = false
-                    isAlarmRinging = true
-                    isSessionActive = true
-                    AlarmAlertActivity.isDismissedOrSnoozedGlobally = false
-
-                    startForegroundForRinging(
-                        alarmId = restored.alarmId,
-                        label = restored.label,
-                        startPage = restored.startPage,
-                        pageCount = restored.pageCount,
-                        wirdSurahNumber = restored.wirdSurahNumber,
-                        startAyah = restored.startAyah,
-                        dailyAyahCount = restored.dailyAyahCount
-                    )
-                    acquireWakeLock()
-                    if (OemDeviceHelper.isPhoneCallActive(this)) {
-                        isAudioDeferredByCall = true
-                    } else {
-                        isAudioDeferredByCall = false
-                        startRingingOutputs(restored.volumeLevel, restored.soundUri, restored.isVibrate)
-                    }
-                    if (!AlarmAlertActivity.isActivityVisible) {
-                        launchAlarmActivity(
-                            restored.alarmId,
-                            restored.label,
-                            restored.startPage,
-                            restored.pageCount,
-                            restored.wirdSurahNumber,
-                            restored.startAyah,
-                            restored.dailyAyahCount
-                        )
-                    }
-                } else {
-                    isAlarmRingingGlobally = false
-                    isReadingSessionActiveGlobally = true
-                    isAlarmRinging = false
-                    isSessionActive = true
-                    isAudioDeferredByCall = false
-                    AlarmAlertActivity.isDismissedOrSnoozedGlobally = false
-                    val readingNotification = buildReadingNotification(
-                        restored.alarmId,
-                        restored.label,
-                        restored.startPage,
-                        restored.pageCount,
-                        restored.wirdSurahNumber,
-                        restored.startAyah,
-                        restored.dailyAyahCount
-                    )
-                    startForegroundCompat(readingNotification)
-                    if (!AlarmAlertActivity.isActivityVisible) {
-                        launchAlarmActivity(
-                            restored.alarmId,
-                            restored.label,
-                            restored.startPage,
-                            restored.pageCount,
-                            restored.wirdSurahNumber,
-                            restored.startAyah,
-                            restored.dailyAyahCount
-                        )
-                    }
-                }
-                if (watchdogJob?.isActive != true) {
-                    watchdogJob = startWatchdog(
-                        restored.alarmId,
-                        restored.label,
-                        restored.startPage,
-                        restored.pageCount,
-                        restored.wirdSurahNumber,
-                        restored.startAyah,
-                        restored.dailyAyahCount
-                    )
-                }
-                return START_STICKY
-            }
-            stopSelf()
-            return START_NOT_STICKY
+            return handleRestoreSession()
         }
 
         when (intent.action) {
             ACTION_ALERT_VISIBLE -> {
-                highPriorityFallbackJob?.cancel()
-                highPriorityFallbackJob = null
                 val payload = activePayload
                 if (payload != null && (isSessionActive || payload.alarmId < 0)) {
-                    val silentNotification = buildSilentOngoingNotification(
-                        alarmId = payload.alarmId,
-                        label = payload.label,
-                        startPage = payload.startPage,
-                        pageCount = payload.pageCount,
+                    val silentNotification = buildServiceNotification(
+                        context = this,
+                        payload = payload,
                         isReading = !isAlarmRinging && payload.alarmId >= 0,
-                        wirdSurahNumber = payload.wirdSurahNumber,
-                        startAyah = payload.startAyah,
-                        dailyAyahCount = payload.dailyAyahCount
+                        silentOngoing = true
                     )
-                    val notificationManager = getSystemService(NotificationManager::class.java)
-                    notificationManager?.notify(NOTIFICATION_ID, silentNotification)
+                    getSystemService(NotificationManager::class.java)
+                        ?.notify(NOTIFICATION_ID, silentNotification)
                     return if (isSessionActive) START_STICKY else START_NOT_STICKY
                 }
                 if (!isSessionActive) {
@@ -249,19 +234,17 @@ class AlarmForegroundService : Service() {
                 return START_STICKY
             }
             ACTION_SILENCE_RINGING -> {
-                highPriorityFallbackJob?.cancel()
-                highPriorityFallbackJob = null
                 isAlarmRingingGlobally = false
                 isAlarmRinging = false
                 isAudioDeferredByCall = false
                 pauseRingingOutputs()
                 releaseWakeLock()
 
-                val payload = AlarmAlertIntentFactory.parsePayload(
+                val parsedPayload = AlarmAlertIntentFactory.parsePayload(
                     intent = intent,
                     fallbackAlarmId = activeSessionAlarmId ?: AlarmAlertIntentFactory.INVALID_ALARM_ID
                 )
-                if (payload.alarmId < 0) {
+                if (parsedPayload.alarmId < 0) {
                     if (!isSessionLockActive()) {
                         isSessionActive = false
                         stopAlarmAndSelf()
@@ -271,45 +254,32 @@ class AlarmForegroundService : Service() {
 
                 isReadingSessionActiveGlobally = true
                 isSessionActive = true
-                activeSessionAlarmId = payload.alarmId
+                activeSessionAlarmId = parsedPayload.alarmId
                 sessionStore.markReadingStage(
-                    alarmId = payload.alarmId,
-                    label = payload.label,
-                    startPage = payload.startPage,
-                    pageCount = payload.pageCount,
-                    wirdSurahNumber = payload.wirdSurahNumber,
-                    startAyah = payload.startAyah,
-                    dailyAyahCount = payload.dailyAyahCount
+                    alarmId = parsedPayload.alarmId,
+                    label = parsedPayload.label,
+                    startPage = parsedPayload.startPage,
+                    pageCount = parsedPayload.pageCount,
+                    wirdSurahNumber = parsedPayload.wirdSurahNumber,
+                    startAyah = parsedPayload.startAyah,
+                    dailyAyahCount = parsedPayload.dailyAyahCount
                 )
-                val resolvedSession = sessionStore.loadSession()
-                val readingNotification = buildReadingNotification(
-                    payload.alarmId,
-                    payload.label,
-                    payload.startPage,
-                    payload.pageCount,
-                    resolvedSession?.wirdSurahNumber ?: payload.wirdSurahNumber,
-                    resolvedSession?.startAyah ?: payload.startAyah,
-                    resolvedSession?.dailyAyahCount ?: payload.dailyAyahCount
-                )
-                val notificationManager = getSystemService(NotificationManager::class.java)
-                notificationManager?.notify(NOTIFICATION_ID, readingNotification)
+                val resolvedPayload = sessionStore.loadSession()?.toPayload() ?: parsedPayload
+                activePayload = resolvedPayload
 
-                if (watchdogJob?.isActive != true) {
-                    watchdogJob = startWatchdog(
-                        payload.alarmId,
-                        payload.label,
-                        payload.startPage,
-                        payload.pageCount,
-                        resolvedSession?.wirdSurahNumber ?: payload.wirdSurahNumber,
-                        resolvedSession?.startAyah ?: payload.startAyah,
-                        resolvedSession?.dailyAyahCount ?: payload.dailyAyahCount
-                    )
-                }
+                val readingNotification = buildServiceNotification(
+                    context = this,
+                    payload = resolvedPayload,
+                    isReading = true,
+                    silentOngoing = true
+                )
+                getSystemService(NotificationManager::class.java)
+                    ?.notify(NOTIFICATION_ID, readingNotification)
+
+                ensureWatchdogRunning(resolvedPayload)
                 return START_STICKY
             }
             ACTION_STOP_ALARM -> {
-                highPriorityFallbackJob?.cancel()
-                highPriorityFallbackJob = null
                 activePayload = null
                 isAlarmRingingGlobally = false
                 isReadingSessionActiveGlobally = false
@@ -357,30 +327,18 @@ class AlarmForegroundService : Service() {
                 activePayload = payload
 
                 if (isPreview) {
-                    val notification = buildSilentOngoingNotification(
-                        alarmId = alarmId,
-                        label = payload.label,
-                        startPage = payload.startPage,
-                        pageCount = payload.pageCount,
+                    val notification = buildServiceNotification(
+                        context = this,
+                        payload = payload,
                         isReading = false,
-                        wirdSurahNumber = payload.wirdSurahNumber,
-                        startAyah = payload.startAyah,
-                        dailyAyahCount = payload.dailyAyahCount
+                        silentOngoing = true
                     )
                     startForegroundCompat(notification)
                     if (!OemDeviceHelper.isPhoneCallActive(this)) {
                         startRingingOutputs(payload.volumeLevel, payload.soundUri, payload.isVibrate)
                     }
                     if (!AlarmAlertActivity.isActivityVisible) {
-                        launchAlarmActivity(
-                            alarmId,
-                            payload.label,
-                            payload.startPage,
-                            payload.pageCount,
-                            payload.wirdSurahNumber,
-                            payload.startAyah,
-                            payload.dailyAyahCount
-                        )
+                        launchAlarmActivity(payload)
                     }
                     return START_NOT_STICKY
                 }
@@ -409,15 +367,7 @@ class AlarmForegroundService : Service() {
                     )
                 )
 
-                startForegroundForRinging(
-                    alarmId = alarmId,
-                    label = payload.label,
-                    startPage = payload.startPage,
-                    pageCount = payload.pageCount,
-                    wirdSurahNumber = payload.wirdSurahNumber,
-                    startAyah = payload.startAyah,
-                    dailyAyahCount = payload.dailyAyahCount
-                )
+                startForegroundForRinging(payload)
                 acquireWakeLock()
 
                 if (OemDeviceHelper.isPhoneCallActive(this)) {
@@ -428,44 +378,89 @@ class AlarmForegroundService : Service() {
                 }
 
                 if (!AlarmAlertActivity.isActivityVisible) {
-                    launchAlarmActivity(
-                        alarmId,
-                        payload.label,
-                        payload.startPage,
-                        payload.pageCount,
-                        payload.wirdSurahNumber,
-                        payload.startAyah,
-                        payload.dailyAyahCount
-                    )
+                    launchAlarmActivity(payload)
                 }
 
                 watchdogJob?.cancel()
-                watchdogJob = startWatchdog(
-                    alarmId,
-                    payload.label,
-                    payload.startPage,
-                    payload.pageCount,
-                    payload.wirdSurahNumber,
-                    payload.startAyah,
-                    payload.dailyAyahCount
-                )
+                watchdogJob = startWatchdog(payload)
             }
         }
 
         return START_STICKY
     }
 
+    private fun handleRestoreSession(): Int {
+        val restored = sessionStore.loadSession()
+        if (restored != null && restored.alarmId >= 0) {
+            val payload = restored.toPayload()
+            activeSessionAlarmId = restored.alarmId
+            activeSoundUri = restored.soundUri
+            activeVolumeLevel = restored.volumeLevel
+            activeIsVibrate = restored.isVibrate
+            activePayload = payload
+
+            if (restored.stage == AlarmSessionStore.STAGE_RINGING) {
+                isAlarmRingingGlobally = true
+                isReadingSessionActiveGlobally = false
+                isAlarmRinging = true
+                isSessionActive = true
+                AlarmAlertActivity.isDismissedOrSnoozedGlobally = false
+
+                startForegroundForRinging(payload)
+                acquireWakeLock()
+                if (OemDeviceHelper.isPhoneCallActive(this)) {
+                    isAudioDeferredByCall = true
+                } else {
+                    isAudioDeferredByCall = false
+                    startRingingOutputs(restored.volumeLevel, restored.soundUri, restored.isVibrate)
+                }
+            } else {
+                isAlarmRingingGlobally = false
+                isReadingSessionActiveGlobally = true
+                isAlarmRinging = false
+                isSessionActive = true
+                isAudioDeferredByCall = false
+                AlarmAlertActivity.isDismissedOrSnoozedGlobally = false
+                val readingNotification = buildServiceNotification(
+                    context = this,
+                    payload = payload,
+                    isReading = true,
+                    silentOngoing = true
+                )
+                startForegroundCompat(readingNotification)
+            }
+
+            if (!AlarmAlertActivity.isActivityVisible) {
+                launchAlarmActivity(payload)
+            }
+            ensureWatchdogRunning(payload)
+            return START_STICKY
+        }
+        stopSelf()
+        return START_NOT_STICKY
+    }
+
+    private fun ensureWatchdogRunning(payload: AlarmAlertPayload) {
+        if (watchdogJob?.isActive != true) {
+            watchdogJob = startWatchdog(payload)
+        }
+    }
+
     private fun startRingingOutputs(volumeLevel: Int, soundUri: String?, isVibrate: Boolean) {
         volumeEnforcer.startEnforcing(volumeLevel)
-        audioManager.startAlarm(soundUriString = soundUri, volumeLevel = volumeLevel)
+        audioManager.startAlarm(
+            soundUriString = soundUri,
+            volumeLevel = volumeLevel,
+            manageSystemStreamVolume = false
+        )
         if (isVibrate) {
             vibratorManager.startVibration()
         }
     }
 
     private fun pauseRingingOutputs() {
-        audioManager.stopAlarm()
         volumeEnforcer.stopEnforcing()
+        audioManager.stopAlarm()
         vibratorManager.stopVibration()
     }
 
@@ -483,15 +478,7 @@ class AlarmForegroundService : Service() {
         }
     }
 
-    private fun startWatchdog(
-        alarmId: Int,
-        label: String,
-        startPage: Int,
-        pageCount: Int,
-        wirdSurahNumber: Int? = null,
-        startAyah: Int? = null,
-        dailyAyahCount: Int? = null
-    ): Job {
+    private fun startWatchdog(payload: AlarmAlertPayload): Job {
         return serviceScope.launch {
             var relaunchBackoffMs = 1000L
             var consecutiveInvisibleAttempts = 0
@@ -525,15 +512,7 @@ class AlarmForegroundService : Service() {
                         !callActive
                     ) {
                         if (consecutiveInvisibleAttempts < 20) {
-                            launchAlarmActivity(
-                                alarmId,
-                                label,
-                                startPage,
-                                pageCount,
-                                wirdSurahNumber,
-                                startAyah,
-                                dailyAyahCount
-                            )
+                            launchAlarmActivity(payload)
                             consecutiveInvisibleAttempts++
                             relaunchBackoffMs = (relaunchBackoffMs * 2).coerceAtMost(15_000L)
                         } else if (isAlarmRinging) {
@@ -554,92 +533,38 @@ class AlarmForegroundService : Service() {
         }
     }
 
-    private fun launchAlarmActivity(
-        alarmId: Int,
-        label: String,
-        startPage: Int,
-        pageCount: Int,
-        wirdSurahNumber: Int? = null,
-        startAyah: Int? = null,
-        dailyAyahCount: Int? = null
-    ) {
+    private fun launchAlarmActivity(payload: AlarmAlertPayload) {
         val alertIntent = AlarmAlertIntentFactory.buildAlertIntent(
             context = this,
-            alarmId = alarmId,
-            label = label,
-            targetPage = startPage,
-            startPage = startPage,
-            pageCount = pageCount,
+            alarmId = payload.alarmId,
+            label = payload.label,
+            targetPage = payload.startPage,
+            startPage = payload.startPage,
+            pageCount = payload.pageCount,
             isSnoozeEnabled = true,
             isFreshTrigger = false,
             reorderToFront = true,
-            wirdSurahNumber = wirdSurahNumber,
-            startAyah = startAyah,
-            dailyAyahCount = dailyAyahCount
+            wirdSurahNumber = payload.wirdSurahNumber,
+            startAyah = payload.startAyah,
+            dailyAyahCount = payload.dailyAyahCount
         )
         AlarmAlertIntentFactory.launchActivityWithBalFallback(
             context = this,
             alertIntent = alertIntent,
-            pendingIntentRequestCode = alarmId + 400_000
+            pendingIntentRequestCode = payload.alarmId + 400_000
         )
     }
 
-    private fun startForegroundForRinging(
-        alarmId: Int,
-        label: String,
-        startPage: Int,
-        pageCount: Int,
-        wirdSurahNumber: Int? = null,
-        startAyah: Int? = null,
-        dailyAyahCount: Int? = null
-    ) {
-        highPriorityFallbackJob?.cancel()
-        highPriorityFallbackJob = null
-        val canLaunchActivityDirectly = AlarmAlertActivity.isActivityVisible || Settings.canDrawOverlays(this)
-        if (canLaunchActivityDirectly) {
-            val silentNotification = buildSilentOngoingNotification(
-                alarmId = alarmId,
-                label = label,
-                startPage = startPage,
-                pageCount = pageCount,
-                isReading = false,
-                wirdSurahNumber = wirdSurahNumber,
-                startAyah = startAyah,
-                dailyAyahCount = dailyAyahCount
-            )
-            startForegroundCompat(silentNotification)
-            highPriorityFallbackJob = serviceScope.launch {
-                delay(FULL_SCREEN_FALLBACK_DELAY_MS)
-                if (isSessionActive &&
-                    isAlarmRinging &&
-                    !AlarmAlertActivity.isActivityVisible &&
-                    !AlarmAlertActivity.isDismissedOrSnoozedGlobally
-                ) {
-                    val highPriority = buildNotification(
-                        alarmId = alarmId,
-                        label = label,
-                        startPage = startPage,
-                        pageCount = pageCount,
-                        wirdSurahNumber = wirdSurahNumber,
-                        startAyah = startAyah,
-                        dailyAyahCount = dailyAyahCount
-                    )
-                    val nm = getSystemService(NotificationManager::class.java)
-                    nm?.notify(NOTIFICATION_ID, highPriority)
-                }
-            }
-        } else {
-            val notification = buildNotification(
-                alarmId = alarmId,
-                label = label,
-                startPage = startPage,
-                pageCount = pageCount,
-                wirdSurahNumber = wirdSurahNumber,
-                startAyah = startAyah,
-                dailyAyahCount = dailyAyahCount
-            )
-            startForegroundCompat(notification)
-        }
+    private fun startForegroundForRinging(payload: AlarmAlertPayload) {
+        // Only start with a silent notification if the Alert Activity is already visible;
+        // otherwise post FullScreenIntent immediately so Xiaomi/Vivo/Samsung lockscreens wake up reliably.
+        val notification = buildServiceNotification(
+            context = this,
+            payload = payload,
+            isReading = false,
+            silentOngoing = AlarmAlertActivity.isActivityVisible
+        )
+        startForegroundCompat(notification)
     }
 
     fun buildNotification(
@@ -652,15 +577,25 @@ class AlarmForegroundService : Service() {
         dailyAyahCount: Int? = null
     ): Notification =
         buildServiceNotification(
-            alarmId = alarmId,
-            label = label,
-            startPage = startPage,
-            pageCount = pageCount,
+            context = this,
+            payload = AlarmAlertPayload(
+                alarmId = alarmId,
+                label = label,
+                targetPage = startPage,
+                startPage = startPage,
+                pageCount = pageCount,
+                volumeLevel = activeVolumeLevel,
+                isVibrate = activeIsVibrate,
+                soundUri = activeSoundUri,
+                isSnoozeTrigger = false,
+                isSnoozeEnabled = true,
+                isFreshTrigger = false,
+                wirdSurahNumber = wirdSurahNumber,
+                startAyah = startAyah,
+                dailyAyahCount = dailyAyahCount
+            ),
             isReading = false,
-            silentOngoing = false,
-            wirdSurahNumber = wirdSurahNumber,
-            startAyah = startAyah,
-            dailyAyahCount = dailyAyahCount
+            silentOngoing = false
         )
 
     fun buildReadingNotification(
@@ -672,105 +607,44 @@ class AlarmForegroundService : Service() {
         startAyah: Int? = null,
         dailyAyahCount: Int? = null
     ): Notification =
-        buildSilentOngoingNotification(
-            alarmId = alarmId,
-            label = label,
-            startPage = startPage,
-            pageCount = pageCount,
-            isReading = true,
-            wirdSurahNumber = wirdSurahNumber,
-            startAyah = startAyah,
-            dailyAyahCount = dailyAyahCount
-        )
-
-    private fun buildSilentOngoingNotification(
-        alarmId: Int,
-        label: String,
-        startPage: Int,
-        pageCount: Int,
-        isReading: Boolean,
-        wirdSurahNumber: Int? = null,
-        startAyah: Int? = null,
-        dailyAyahCount: Int? = null
-    ): Notification =
         buildServiceNotification(
-            alarmId = alarmId,
-            label = label,
-            startPage = startPage,
-            pageCount = pageCount,
-            isReading = isReading,
-            silentOngoing = true,
-            wirdSurahNumber = wirdSurahNumber,
-            startAyah = startAyah,
-            dailyAyahCount = dailyAyahCount
-        )
-
-    private fun buildServiceNotification(
-        alarmId: Int,
-        label: String,
-        startPage: Int,
-        pageCount: Int,
-        isReading: Boolean,
-        silentOngoing: Boolean,
-        wirdSurahNumber: Int? = null,
-        startAyah: Int? = null,
-        dailyAyahCount: Int? = null
-    ): Notification {
-        val endPage = AlarmAlertIntentFactory.computeEndPage(startPage, pageCount)
-        val alertIntent = AlarmAlertIntentFactory.buildAlertIntent(
             context = this,
-            alarmId = alarmId,
-            label = label,
-            targetPage = startPage,
-            startPage = startPage,
-            pageCount = pageCount,
-            isSnoozeEnabled = true,
-            isFreshTrigger = false,
-            wirdSurahNumber = wirdSurahNumber,
-            startAyah = startAyah,
-            dailyAyahCount = dailyAyahCount
+            payload = AlarmAlertPayload(
+                alarmId = alarmId,
+                label = label,
+                targetPage = startPage,
+                startPage = startPage,
+                pageCount = pageCount,
+                volumeLevel = activeVolumeLevel,
+                isVibrate = activeIsVibrate,
+                soundUri = activeSoundUri,
+                isSnoozeTrigger = false,
+                isSnoozeEnabled = true,
+                isFreshTrigger = false,
+                wirdSurahNumber = wirdSurahNumber,
+                startAyah = startAyah,
+                dailyAyahCount = dailyAyahCount
+            ),
+            isReading = true,
+            silentOngoing = true
         )
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            alarmId + 300_000,
-            alertIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val title = if (isReading) "قراءة الورد القرآني جارية" else "منبه القرآن الكريم"
-        val text = if (isReading) {
-            "$label - صفحة $startPage إلى $endPage"
-        } else {
-            "$label - الورد: صفحة $startPage إلى $endPage"
-        }
-        val channelId = if (silentOngoing) CHANNEL_ONGOING_ID else CHANNEL_ID
 
-        val builder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_stat_quran_alarm)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setContentIntent(pendingIntent)
-
-        if (silentOngoing) {
-            builder
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setVisibility(if (isReading) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_PRIVATE)
-                .setSilent(true)
-                .setOnlyAlertOnce(true)
-        } else {
-            builder
-                .setPriority(if (isReading) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_MAX)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            if (isReading) {
-                builder.setOnlyAlertOnce(true)
-            } else {
-                builder.setFullScreenIntent(pendingIntent, true)
-            }
-        }
-        return builder.build()
-    }
+    private fun PersistedAlarmSession.toPayload(): AlarmAlertPayload = AlarmAlertPayload(
+        alarmId = alarmId,
+        label = label,
+        targetPage = startPage,
+        startPage = startPage,
+        pageCount = pageCount,
+        volumeLevel = volumeLevel,
+        isVibrate = isVibrate,
+        soundUri = soundUri,
+        isSnoozeTrigger = false,
+        isSnoozeEnabled = true,
+        isFreshTrigger = false,
+        wirdSurahNumber = wirdSurahNumber,
+        startAyah = startAyah,
+        dailyAyahCount = dailyAyahCount
+    )
 
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -781,36 +655,6 @@ class AlarmForegroundService : Service() {
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
-        }
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "قناة إشعارات رنين منبه القرآن الكريم فائقة الأولوية"
-                setBypassDnd(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                enableVibration(true)
-                setSound(null, null)
-            }
-            val ongoingChannel = NotificationChannel(
-                CHANNEL_ONGOING_ID,
-                CHANNEL_ONGOING_NAME,
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "إشعار صامت عند فتح شاشة المنبه أو أثناء قراءة الورد"
-                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-                enableVibration(false)
-                setSound(null, null)
-                setShowBadge(false)
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
-            manager.createNotificationChannel(ongoingChannel)
         }
     }
 
@@ -851,8 +695,6 @@ class AlarmForegroundService : Service() {
         isAlarmRinging = false
         isSessionActive = false
         activePayload = null
-        highPriorityFallbackJob?.cancel()
-        highPriorityFallbackJob = null
         watchdogJob?.cancel()
         watchdogJob = null
         serviceJob.cancel()

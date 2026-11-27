@@ -9,11 +9,11 @@ import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
-import com.quran.alarm.R
 import com.quran.alarm.alarm.domain.model.AlarmSoundPresets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,13 +33,14 @@ enum class AudioPlaybackState {
  * Smart audio manager that guarantees alarm sound playback on [AudioManager.STREAM_ALARM].
  *
  * - Plays alarm sound at configured volume on [AudioManager.STREAM_ALARM].
+ * - Supports optional external stream-volume ownership (e.g. [VolumeEnforcer]) to avoid competing mutations.
  * - Hardware fallback via [ToneGenerator] if audio files/URIs fail.
  */
 class SmartAlarmAudioManager(
     private val context: Context,
     externalScope: CoroutineScope? = null
 ) {
-    private val ownedJob: Job? = if (externalScope == null) Job() else null
+    private val ownedJob: Job? = if (externalScope == null) SupervisorJob() else null
     private val scope: CoroutineScope = externalScope ?: CoroutineScope(Dispatchers.Main + ownedJob!!)
     private var fallbackAttempted = false
 
@@ -59,13 +60,24 @@ class SmartAlarmAudioManager(
 
     private var targetVolumePercent: Int = 100
     private var originalAlarmStreamVolume: Int? = null
+    private var managingStreamVolume: Boolean = false
 
     /**
      * Starts alarm playback given a tone URI string or preset URI identifier.
      */
-    fun startAlarm(soundUriString: String?, volumeLevel: Int = 100) {
+    fun startAlarm(
+        soundUriString: String?,
+        volumeLevel: Int = 100,
+        manageSystemStreamVolume: Boolean = true
+    ) {
         val uri = resolveSoundUri(soundUriString)
-        startAlarm(customToneUri = uri, volumeLevel = volumeLevel)
+        val rawResId = AlarmSoundPresets.getRawResId(soundUriString)
+        startAlarm(
+            customToneUri = uri,
+            volumeLevel = volumeLevel,
+            manageSystemStreamVolume = manageSystemStreamVolume,
+            rawResId = rawResId
+        )
     }
 
     /**
@@ -81,35 +93,38 @@ class SmartAlarmAudioManager(
     /**
      * Starts alarm playback at user-configured volume on the ALARM stream.
      */
-    fun startAlarm(customToneUri: Uri? = null, volumeLevel: Int = 100) {
-        if (customToneUri != null) {
+    fun startAlarm(
+        customToneUri: Uri? = null,
+        volumeLevel: Int = 100,
+        manageSystemStreamVolume: Boolean = true,
+        rawResId: Int? = null
+    ) {
+        if (customToneUri != null || rawResId != null) {
             fallbackAttempted = false
         }
         stopAlarm()
         val generation = ++playbackGeneration
         requestAudioFocus()
         targetVolumePercent = volumeLevel.coerceIn(1, 100)
+        managingStreamVolume = manageSystemStreamVolume
 
         try {
-            applyAlarmStreamVolumeIfNeeded()
+            if (manageSystemStreamVolume) {
+                applyAlarmStreamVolumeIfNeeded()
+            }
 
             val alarmUri = customToneUri
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
-            if (alarmUri == null) {
-                fallbackToToneGenerator()
+            if (alarmUri == null && rawResId == null) {
+                fallbackToToneGenerator(manageSystemStreamVolume)
                 return
             }
 
             mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(context, alarmUri)
+                setAudioAttributes(createAlarmAudioAttributes())
+                configureDataSource(this, alarmUri, rawResId)
                 isLooping = true
                 setVolume(1.0f, 1.0f)
                 setOnErrorListener { _, _, _ ->
@@ -117,9 +132,9 @@ class SmartAlarmAudioManager(
                         if (generation != playbackGeneration || _playbackState.value == AudioPlaybackState.STOPPED) {
                             return@launch
                         }
-                        if (!fallbackFromCustomTone(customToneUri, targetVolumePercent)) {
+                        if (!fallbackFromCustomTone(alarmUri, targetVolumePercent, manageSystemStreamVolume)) {
                             if (generation == playbackGeneration && _playbackState.value != AudioPlaybackState.STOPPED) {
-                                fallbackToToneGenerator()
+                                fallbackToToneGenerator(manageSystemStreamVolume)
                             }
                         }
                     }
@@ -137,8 +152,8 @@ class SmartAlarmAudioManager(
                         mp.start()
                     } catch (_: Exception) {
                         if (generation == playbackGeneration && _playbackState.value != AudioPlaybackState.STOPPED) {
-                            if (!fallbackFromCustomTone(customToneUri, targetVolumePercent)) {
-                                fallbackToToneGenerator()
+                            if (!fallbackFromCustomTone(alarmUri, targetVolumePercent, manageSystemStreamVolume)) {
+                                fallbackToToneGenerator(manageSystemStreamVolume)
                             }
                         }
                     }
@@ -148,20 +163,29 @@ class SmartAlarmAudioManager(
             currentVolume = 1.0f
             _playbackState.value = AudioPlaybackState.BLARING
         } catch (_: Exception) {
-            if (!fallbackFromCustomTone(customToneUri, volumeLevel)) {
-                fallbackToToneGenerator()
+            if (!fallbackFromCustomTone(customToneUri, volumeLevel, manageSystemStreamVolume)) {
+                fallbackToToneGenerator(manageSystemStreamVolume)
             }
         }
     }
 
-    private fun fallbackFromCustomTone(customToneUri: Uri?, volumeLevel: Int): Boolean {
+    private fun fallbackFromCustomTone(
+        customToneUri: Uri?,
+        volumeLevel: Int,
+        manageSystemStreamVolume: Boolean
+    ): Boolean {
         if (customToneUri == null || fallbackAttempted) return false
         fallbackAttempted = true
         return try {
             val defaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
             if (defaultUri != null && defaultUri != customToneUri) {
-                startAlarm(customToneUri = null, volumeLevel = volumeLevel)
+                startAlarm(
+                    customToneUri = null,
+                    volumeLevel = volumeLevel,
+                    manageSystemStreamVolume = manageSystemStreamVolume,
+                    rawResId = null
+                )
                 true
             } else {
                 false
@@ -176,11 +200,15 @@ class SmartAlarmAudioManager(
      */
     fun updateVolume(volumeLevel: Int) {
         targetVolumePercent = volumeLevel.coerceIn(1, 100)
-        val vol = (targetVolumePercent / 100f)
-        currentVolume = vol
-        try {
-            mediaPlayer?.setVolume(vol, vol)
-        } catch (_: Exception) {}
+        if (managingStreamVolume) {
+            applyAlarmStreamVolumeIfNeeded()
+        } else {
+            val vol = (targetVolumePercent / 100f)
+            currentVolume = vol
+            try {
+                mediaPlayer?.setVolume(vol, vol)
+            } catch (_: Exception) {}
+        }
     }
 
     /**
@@ -190,38 +218,33 @@ class SmartAlarmAudioManager(
         soundUriString: String?,
         volumeLevel: Int = 80,
         durationMs: Long? = null,
+        onError: () -> Unit = {},
         onComplete: () -> Unit = {}
     ) {
         stopAlarm()
         val generation = ++playbackGeneration
+        val rawResId = AlarmSoundPresets.getRawResId(soundUriString)
         val uri = resolveSoundUri(soundUriString)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
-        if (uri == null) {
+        if (uri == null && rawResId == null) {
+            onError()
             onComplete()
             return
         }
 
+        targetVolumePercent = volumeLevel.coerceIn(1, 100)
+        managingStreamVolume = true
+
         try {
-            runCatching {
-                if (audioManager.getStreamVolume(AudioManager.STREAM_ALARM) == 0) {
-                    targetVolumePercent = volumeLevel.coerceIn(1, 100)
-                    applyAlarmStreamVolumeIfNeeded()
-                }
-            }
+            applyAlarmStreamVolumeIfNeeded()
             mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(context, uri)
+                setAudioAttributes(createAlarmAudioAttributes())
+                configureDataSource(this, uri, rawResId)
                 isLooping = false
-                val vol = (volumeLevel.coerceIn(1, 100) / 100f)
-                setVolume(vol, vol)
-                currentVolume = vol
+                setVolume(1.0f, 1.0f)
+                currentVolume = 1.0f
                 setOnCompletionListener {
                     if (generation == playbackGeneration) {
                         stopAlarm()
@@ -231,6 +254,7 @@ class SmartAlarmAudioManager(
                 setOnErrorListener { _, _, _ ->
                     if (generation == playbackGeneration) {
                         stopAlarm()
+                        onError()
                         onComplete()
                     }
                     true
@@ -259,6 +283,7 @@ class SmartAlarmAudioManager(
                     } catch (_: Exception) {
                         if (generation == playbackGeneration) {
                             stopAlarm()
+                            onError()
                             onComplete()
                         }
                     }
@@ -266,10 +291,34 @@ class SmartAlarmAudioManager(
                 _playbackState.value = AudioPlaybackState.BLARING
                 prepareAsync()
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             stopAlarm()
+            onError()
             onComplete()
         }
+    }
+
+    private fun configureDataSource(player: MediaPlayer, uri: Uri?, rawResId: Int?) {
+        if (uri != null) {
+            val uriSucceeded = runCatching {
+                player.setDataSource(context, uri)
+            }.isSuccess
+            if (uriSucceeded) return
+        }
+        if (rawResId != null) {
+            context.resources.openRawResourceFd(rawResId)?.use { afd ->
+                player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                return
+            }
+        }
+        throw IllegalStateException("Unable to configure audio data source for uri=$uri rawResId=$rawResId")
+    }
+
+    private fun createAlarmAudioAttributes(): AudioAttributes {
+        return AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
     }
 
     private fun applyAlarmStreamVolumeIfNeeded() {
@@ -286,11 +335,13 @@ class SmartAlarmAudioManager(
         }
     }
 
-    private fun fallbackToToneGenerator() {
+    private fun fallbackToToneGenerator(manageSystemStreamVolume: Boolean) {
         try {
             mediaPlayer?.release()
             mediaPlayer = null
-            applyAlarmStreamVolumeIfNeeded()
+            if (manageSystemStreamVolume) {
+                applyAlarmStreamVolumeIfNeeded()
+            }
             if (toneGenerator == null) {
                 toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, targetVolumePercent)
             }
@@ -303,7 +354,7 @@ class SmartAlarmAudioManager(
 
     /**
      * Completely silences and releases media player, tone generator, audio focus,
-     * and restores the user's original alarm stream volume if modified.
+     * and restores the user's original alarm stream volume if this manager modified it.
      */
     fun stopAlarm() {
         playbackGeneration++
@@ -318,18 +369,20 @@ class SmartAlarmAudioManager(
                 it.reset()
                 it.release()
             }
-        } catch (ignored: Exception) {}
+        } catch (_: Exception) {}
         mediaPlayer = null
 
         try {
             toneGenerator?.stopTone()
             toneGenerator?.release()
-        } catch (ignored: Exception) {}
+        } catch (_: Exception) {}
         toneGenerator = null
 
         val savedVolume = originalAlarmStreamVolume
         originalAlarmStreamVolume = null
-        if (savedVolume != null) {
+        val shouldRestore = managingStreamVolume
+        managingStreamVolume = false
+        if (shouldRestore && savedVolume != null) {
             runCatching {
                 audioManager.setStreamVolume(AudioManager.STREAM_ALARM, savedVolume, 0)
             }
@@ -350,11 +403,7 @@ class SmartAlarmAudioManager(
 
     private fun requestAudioFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val attributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-
+            val attributes = createAlarmAudioAttributes()
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                 .setAudioAttributes(attributes)
                 .build()

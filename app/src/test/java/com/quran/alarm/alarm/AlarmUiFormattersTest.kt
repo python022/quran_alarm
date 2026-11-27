@@ -1,5 +1,6 @@
 package com.quran.alarm.alarm
 
+import com.quran.alarm.alarm.domain.model.AlarmItem
 import com.quran.alarm.ui.AlarmUiFormatters
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -77,8 +78,10 @@ class AlarmUiFormattersTest {
         assertEquals("المنبه خلال دقيقة واحدة", AlarmUiFormatters.formatNextAlarmCountdown(now + 60_000L, now))
         assertEquals("المنبه خلال دقيقتين", AlarmUiFormatters.formatNextAlarmCountdown(now + 120_000L, now))
         assertEquals("المنبه خلال 45 دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + 45 * 60_000L, now))
-        assertEquals("المنبه خلال 2 ساعة", AlarmUiFormatters.formatNextAlarmCountdown(now + 120 * 60_000L, now))
-        assertEquals("المنبه خلال 3 ساعة و 25 دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + (3 * 60 + 25) * 60_000L, now))
+        assertEquals("المنبه خلال ساعتين", AlarmUiFormatters.formatNextAlarmCountdown(now + 120 * 60_000L, now))
+        assertEquals("المنبه خلال 3 ساعات و 25 دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + (3 * 60 + 25) * 60_000L, now))
+        assertEquals("المنبه خلال 4 ساعات و 8 دقائق", AlarmUiFormatters.formatNextAlarmCountdown(now + (4 * 60 + 8) * 60_000L, now))
+        assertEquals("المنبه خلال ساعتين و 50 دقيقة", AlarmUiFormatters.formatNextAlarmCountdown(now + (2 * 60 + 50) * 60_000L, now))
     }
 
     @Test
@@ -134,7 +137,14 @@ class AlarmUiFormattersTest {
             fromMillis = now,
             targetDayName = "الأحد"
         )
-        assertEquals("المنبه يوم الأحد خلال 57 ساعة و 19 دقيقة", text)
+        assertEquals("المنبه يوم الأحد خلال يومين و 9 ساعات و 19 دقيقة", text)
+
+        val oneDayExact = AlarmUiFormatters.formatNextAlarmCountdown(
+            triggerMillis = now + 24 * 60 * 60_000L,
+            fromMillis = now,
+            targetDayName = "الجمعة"
+        )
+        assertEquals("المنبه يوم الجمعة خلال يوم واحد", oneDayExact)
 
         val textShort = AlarmUiFormatters.formatNextAlarmCountdown(
             triggerMillis = now + 45 * 60_000L,
@@ -142,6 +152,33 @@ class AlarmUiFormattersTest {
             targetDayName = "الجمعة"
         )
         assertEquals("المنبه يوم الجمعة خلال 45 دقيقة", textShort)
+    }
+
+    @Test
+    fun getDefaultWorkdays_adaptsToLocaleFirstDayOfWeek() {
+        val usWorkdays = AlarmUiFormatters.getDefaultWorkdays(java.util.Locale.US)
+        assertEquals(
+            setOf(
+                Calendar.SUNDAY,
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY
+            ),
+            usWorkdays
+        )
+        val franceWorkdays = AlarmUiFormatters.getDefaultWorkdays(java.util.Locale.FRANCE)
+        assertEquals(
+            setOf(
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY,
+                Calendar.FRIDAY
+            ),
+            franceWorkdays
+        )
+        assertEquals("وسط أيام الأسبوع", AlarmUiFormatters.formatRepeatDays(franceWorkdays))
     }
 
     @Test
@@ -153,5 +190,28 @@ class AlarmUiFormattersTest {
         assertEquals("الأربعاء", AlarmUiFormatters.getDayName(Calendar.WEDNESDAY))
         assertEquals("الخميس", AlarmUiFormatters.getDayName(Calendar.THURSDAY))
         assertEquals("الجمعة", AlarmUiFormatters.getDayName(Calendar.FRIDAY))
+    }
+
+    @Test
+    fun formatPagesAyahsAndSinglePageSummary_followArabicGrammar() {
+        assertEquals("صفحة واحدة", AlarmUiFormatters.formatPagesCount(1))
+        assertEquals("صفحتان", AlarmUiFormatters.formatPagesCount(2))
+        assertEquals("5 صفحات", AlarmUiFormatters.formatPagesCount(5))
+        assertEquals("15 صفحة", AlarmUiFormatters.formatPagesCount(15))
+
+        assertEquals("7 آيات", AlarmUiFormatters.formatAyahsCount(7))
+        assertEquals("30 آية", AlarmUiFormatters.formatAyahsCount(30))
+
+        assertEquals("سورة الفاتحة • صفحة 1 (صفحة واحدة)", AlarmUiFormatters.formatPageRangeSummary(1, 1))
+        assertEquals("سورة الإخلاص • صفحة 604 (صفحة واحدة)", AlarmUiFormatters.formatPageRangeSummary(604, 604))
+        assertEquals("من ص 2 إلى ص 6 (5 صفحات)", AlarmUiFormatters.formatPageRangeSummary(2, 6))
+
+        val singlePageAlarm = AlarmItem(id = 1, hour = 5, minute = 0, startPage = 1, pageCount = 1)
+        assertEquals("سورة الفاتحة • صفحة 1", AlarmUiFormatters.formatWirdCardSummary(singlePageAlarm))
+
+        assertEquals("النغمة الافتراضية", AlarmUiFormatters.formatCompactSoundTitle(null))
+        assertEquals("النغمة الافتراضية", AlarmUiFormatters.formatCompactSoundTitle("نغمة المنبه الافتراضية"))
+        assertEquals("حوالي دقيقتين", AlarmUiFormatters.formatEstimatedReadingTime(1))
+        assertEquals("حوالي 10 دقائق", AlarmUiFormatters.formatEstimatedReadingTime(5))
     }
 }

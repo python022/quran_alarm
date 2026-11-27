@@ -1,17 +1,22 @@
 package com.quran.alarm.alarm.receiver
 
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.quran.alarm.alarm.data.repository.AlarmRepositoryImpl
 import com.quran.alarm.alarm.data.scheduler.AlarmSchedulerImpl
 import com.quran.alarm.alarm.data.storage.AlarmSessionStore
+import com.quran.alarm.alarm.data.storage.PersistedAlarmSession
 import com.quran.alarm.alarm.domain.model.AlarmItem
 import com.quran.alarm.alarm.domain.repository.AlarmRepository
 import com.quran.alarm.alarm.domain.scheduler.AlarmScheduler
+import com.quran.alarm.alarm.service.AlarmAlertPayload
 import com.quran.alarm.alarm.service.AlarmForegroundService
+import java.util.Calendar
 
 /**
  * BroadcastReceiver responsible for rescheduling all active alarms upon device reboot
@@ -99,16 +104,20 @@ open class BootReceiver : BroadcastReceiver() {
 
         for (alarm in activeAlarms) {
             val pendingSnooze = alarm.snoozeTriggerMillis?.takeIf { it > now }
-            val normalizedAlarm = if (alarm.snoozeTriggerMillis != null && pendingSnooze == null) {
+            val hadExpiredSnooze = alarm.snoozeTriggerMillis != null && pendingSnooze == null
+            val normalizedAlarm = if (hadExpiredSnooze) {
                 alarm.copy(snoozeTriggerMillis = null)
             } else {
                 alarm
             }
 
             val updatedAlarm = if (normalizedAlarm.repeatDays.isEmpty()) {
-                val isExpired = normalizedAlarm.isOneShotExpired(now) && pendingSnooze == null
+                val isExpired = (
+                    normalizedAlarm.isOneShotExpired(now) ||
+                        (hadExpiredSnooze && normalizedAlarm.explicitTriggerMillis == null)
+                    ) && pendingSnooze == null
                 if (isExpired) {
-                    // One-shot alarm elapsed while phone was powered off: do NOT ring as ghost alarm
+                    // One-shot alarm (or its snooze) elapsed while phone was powered off: do NOT ring as ghost alarm
                     val disabled = normalizedAlarm.copy(isEnabled = false, snoozeTriggerMillis = null)
                     alarmsToPersist.add(disabled)
                     null
@@ -159,10 +168,68 @@ open class BootReceiver : BroadcastReceiver() {
         runCatching {
             val session = AlarmSessionStore.fromContext(context).loadSession() ?: return
             if (!session.active || session.alarmId < 0) return
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                // Android 15 prohibits launching foregroundServiceType="mediaPlayback" directly from BOOT_COMPLETED.
+                if (session.stage == AlarmSessionStore.STAGE_RINGING) {
+                    val triggerAt = System.currentTimeMillis() + 1_500L
+                    val cal = Calendar.getInstance().apply { timeInMillis = triggerAt }
+                    val safeSurah = session.wirdSurahNumber?.takeIf { it in 1..114 }
+                    val maxAyahs = safeSurah?.let { com.quran.alarm.alarm.domain.model.QuranStructure.getSurahByNumber(it).ayahCount }
+                    val restoreAlarm = AlarmItem(
+                        id = session.alarmId,
+                        hour = cal.get(Calendar.HOUR_OF_DAY),
+                        minute = cal.get(Calendar.MINUTE),
+                        isEnabled = true,
+                        isVibrationEnabled = session.isVibrate,
+                        label = session.label,
+                        targetPage = session.startPage.coerceIn(1, 604),
+                        startPage = session.startPage.coerceIn(1, 604),
+                        pageCount = session.pageCount.coerceIn(1, 604),
+                        volumeLevel = session.volumeLevel.coerceIn(1, 100),
+                        soundUri = session.soundUri,
+                        explicitTriggerMillis = triggerAt,
+                        wirdSurahNumber = safeSurah,
+                        startAyah = if (maxAyahs != null) session.startAyah?.coerceIn(1, maxAyahs) else null,
+                        dailyAyahCount = if (maxAyahs != null) session.dailyAyahCount?.coerceIn(1, maxAyahs) else null
+                    )
+                    AlarmSchedulerImpl(context).scheduleSnooze(restoreAlarm, triggerAt)
+                } else {
+                    AlarmForegroundService.ensureNotificationChannels(context)
+                    val payload = session.toAlertPayload()
+                    val notification = AlarmForegroundService.buildServiceNotification(
+                        context = context,
+                        payload = payload,
+                        isReading = true,
+                        silentOngoing = false
+                    )
+                    val nm = context.getSystemService(NotificationManager::class.java)
+                    nm?.notify(AlarmForegroundService.NOTIFICATION_ID, notification)
+                }
+                return
+            }
+
             val restoreIntent = Intent(context, AlarmForegroundService::class.java).apply {
                 action = AlarmForegroundService.ACTION_RESTORE_SESSION
             }
             ContextCompat.startForegroundService(context, restoreIntent)
         }
     }
+
+    private fun PersistedAlarmSession.toAlertPayload(): AlarmAlertPayload = AlarmAlertPayload(
+        alarmId = alarmId,
+        label = label,
+        targetPage = startPage,
+        startPage = startPage,
+        pageCount = pageCount,
+        volumeLevel = volumeLevel,
+        isVibrate = isVibrate,
+        soundUri = soundUri,
+        isSnoozeTrigger = false,
+        isSnoozeEnabled = true,
+        isFreshTrigger = false,
+        wirdSurahNumber = wirdSurahNumber,
+        startAyah = startAyah,
+        dailyAyahCount = dailyAyahCount
+    )
 }

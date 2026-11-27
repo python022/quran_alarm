@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.QuranAlarm" parent="android:Theme.Material.NoActionBar">
+        <item name="android:fontFamily">@font/cairo</item>
+        <item name="android:windowBackground">@color/bg_primary</item>
+        <item name="android:colorBackground">@color/bg_primary</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:textViewStyle">@style/Widget.QuranAlarm.TextView</item>
+    </style>
+
+    <style name="Widget.QuranAlarm.TextView" parent="android:Widget.Material.TextView">
+        <item name="android:fontFamily">@font/cairo</item>
+        <item name="android:lineSpacingExtra">4dp</item>
+    </style>
+</resources>

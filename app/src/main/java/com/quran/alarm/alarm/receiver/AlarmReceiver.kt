@@ -65,9 +65,16 @@ class AlarmReceiver : BroadcastReceiver() {
         val repository = repositoryProvider(context)
         val scheduler = schedulerProvider(context)
         val alarm = if (alarmId >= 0) repository.getAlarmById(alarmId) else null
+        val activeInterruptedSession = if (alarmId >= 0) {
+            runCatching { AlarmSessionStore.fromContext(context).loadSession() }.getOrNull()
+                ?.takeIf { it.active && it.stage == AlarmSessionStore.STAGE_RINGING && it.alarmId == alarmId }
+        } else {
+            null
+        }
 
-        // Prevent deleted or disabled alarms ("ghost alarms") from firing if a stale PendingIntent triggers
-        if (alarmId >= 0 && (alarm == null || !alarm.isEnabled)) {
+        // Prevent deleted or disabled alarms ("ghost alarms") from firing if a stale PendingIntent triggers,
+        // while still allowing restoration of an interrupted active ringing session on Android 15+.
+        if (alarmId >= 0 && (alarm == null || (!alarm.isEnabled && activeInterruptedSession == null))) {
             scheduler.cancel(alarmId)
             return
         }

@@ -186,9 +186,7 @@ object OemDeviceHelper {
         return try {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             val mode = am?.mode ?: AudioManager.MODE_NORMAL
-            mode == AudioManager.MODE_RINGTONE ||
-                mode == AudioManager.MODE_IN_CALL ||
-                mode == AudioManager.MODE_IN_COMMUNICATION
+            mode == AudioManager.MODE_RINGTONE || mode == AudioManager.MODE_IN_CALL
         } catch (_: Exception) {
             false
         }

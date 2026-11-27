@@ -77,6 +77,7 @@ data class MushafReaderUiState(
     val dailyAyahCount: Int? = null,
     val currentPageStartLine: Int? = null,
     val currentPageEndLine: Int? = null,
+    val loadError: String? = null,
     val isInitialized: Boolean = false
 ) {
     val isAyahMode: Boolean
@@ -243,10 +244,19 @@ class AlarmAlertViewModel(
         loadPageJob = viewModelScope.launch {
             try {
                 // Keep old currentPage aligned with old currentLines/activeLine until IO finishes atomically.
-                _uiState.update { it.copy(isLoading = true) }
+                _uiState.update { it.copy(isLoading = true, loadError = null) }
 
                 val (lines, maxLines) = withContext(ioDispatcher) {
                     lineBoundsRepository.getLinesForPage(safePage) to lineBoundsRepository.getPageLineCount(safePage)
+                }
+                if (lines.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            loadError = "تعذر تحميل أسطر صفحة المصحف. يرجى المحاولة مرة أخرى."
+                        )
+                    }
+                    return@launch
                 }
                 val stateSnapshot = _uiState.value
                 val ayahLineRange = if (stateSnapshot.isAyahMode) {
@@ -288,6 +298,7 @@ class AlarmAlertViewModel(
                         pageMaxLines = maxLines,
                         currentPageStartLine = ayahLineRange?.first,
                         currentPageEndLine = ayahLineRange?.last,
+                        loadError = null,
                         activeLine = lineToSet
                     )
                 }
@@ -300,9 +311,29 @@ class AlarmAlertViewModel(
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 runCatching { Log.e("AlarmAlertViewModel", "Error loading page $safePage: ${e.message}", e) }
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        loadError = "تعذر تحميل صفحة المصحف الشريف. يرجى المحاولة مرة أخرى."
+                    )
+                }
             }
         }
+    }
+
+    fun retryLoadPage() {
+        val state = _uiState.value
+        loadPage(state.currentPage, resetToFirstReadable = false)
+    }
+
+    /**
+     * Emergency exit gate allowed ONLY when page loading failed or in preview mode,
+     * ensuring storage/DB failures can never trap the device in an inescapable lockscreen loop.
+     */
+    fun emergencyExitOnError(onExit: () -> Unit) {
+        val state = _uiState.value
+        if (state.loadError == null && state.alarmId >= 0) return
+        snooze(minutes = 5, onSnooze = onExit)
     }
 
     fun onLineClicked(lineNumber: Int, allowDirectJump: Boolean = true) {

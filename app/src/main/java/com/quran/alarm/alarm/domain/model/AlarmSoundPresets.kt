@@ -1,8 +1,10 @@
 package com.quran.alarm.alarm.domain.model
 
+import android.content.ContentResolver
 import android.content.Context
 import android.media.RingtoneManager
 import android.net.Uri
+import androidx.annotation.RawRes
 import com.quran.alarm.R
 import com.quran.alarm.alarm.data.storage.CustomSoundStorage
 
@@ -28,19 +30,32 @@ object AlarmSoundPresets {
     const val URI_QURAN_ALERT = "builtin://quran_alert"
 
     val PRESET_OPTIONS: List<AlarmSoundOption> = listOf(
-        AlarmSoundOption(title = "نغمة المنبه الافتراضية", uriString = null),
+        AlarmSoundOption(title = "النغمة الافتراضية", uriString = null),
         AlarmSoundOption(title = "أذان الفجر", uriString = URI_ADHAN_FAJR),
         AlarmSoundOption(title = "تكبيرات العيد", uriString = URI_EID_TAKBEER),
         AlarmSoundOption(title = "نغمة هادئة", uriString = URI_CALM_TONE),
         AlarmSoundOption(title = "تنبيه قرآني", uriString = URI_QURAN_ALERT)
     )
 
-    fun getTitleForUri(uriString: String?, defaultTitle: String = "نغمة المنبه الافتراضية"): String {
+    fun getTitleForUri(uriString: String?, defaultTitle: String = "النغمة الافتراضية"): String {
         if (uriString.isNullOrBlank() || uriString == URI_DEFAULT) {
-            return "نغمة المنبه الافتراضية"
+            return "النغمة الافتراضية"
         }
         val preset = PRESET_OPTIONS.firstOrNull { it.uriString == uriString }
         return preset?.title ?: defaultTitle
+    }
+
+    /**
+     * Returns the raw resource ID for built-in sound presets as an actual integer reference
+     * (preventing compile-time string folding so R8 resource shrinking retains raw assets).
+     */
+    @RawRes
+    fun getRawResId(uriString: String?): Int? = when (uriString) {
+        URI_ADHAN_FAJR -> R.raw.adhan_fajr
+        URI_EID_TAKBEER -> R.raw.eid_takbeer
+        URI_CALM_TONE -> R.raw.calm_tone
+        URI_QURAN_ALERT -> R.raw.quran_alert
+        else -> null
     }
 
     /**
@@ -54,30 +69,31 @@ object AlarmSoundPresets {
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
         }
 
-        return when (uriString) {
-            URI_ADHAN_FAJR -> Uri.parse("android.resource://${context.packageName}/${R.raw.adhan_fajr}")
-            URI_EID_TAKBEER -> Uri.parse("android.resource://${context.packageName}/${R.raw.eid_takbeer}")
-            URI_CALM_TONE -> Uri.parse("android.resource://${context.packageName}/${R.raw.calm_tone}")
-            URI_QURAN_ALERT -> Uri.parse("android.resource://${context.packageName}/${R.raw.quran_alert}")
-            else -> {
-                try {
-                    val parsed = Uri.parse(uriString)
-                    val scheme = parsed.scheme?.lowercase()
-                    when (scheme) {
-                        "content", "android.resource" -> parsed
-                        "file" -> {
-                            val safeFile = CustomSoundStorage.resolveSafeCustomSoundFile(context, uriString)
-                            if (safeFile != null) parsed else null
-                        }
-                        else -> {
-                            // Strict whitelist rejects network/streaming schemes (http, https, ftp, rtsp, ws, smb)
-                            null
-                        }
-                    }
-                } catch (_: Exception) {
+        val rawResId = getRawResId(uriString)
+        if (rawResId != null) {
+            return Uri.Builder()
+                .scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)
+                .authority(context.packageName)
+                .appendPath(rawResId.toString())
+                .build()
+        }
+
+        return try {
+            val parsed = Uri.parse(uriString)
+            val scheme = parsed.scheme?.lowercase()
+            when (scheme) {
+                "content", "android.resource" -> parsed
+                "file" -> {
+                    val safeFile = CustomSoundStorage.resolveSafeCustomSoundFile(context, uriString)
+                    if (safeFile != null) parsed else null
+                }
+                else -> {
+                    // Strict whitelist rejects network/streaming schemes (http, https, ftp, rtsp, ws, smb)
                     null
                 }
             }
+        } catch (_: Exception) {
+            null
         }
     }
 }

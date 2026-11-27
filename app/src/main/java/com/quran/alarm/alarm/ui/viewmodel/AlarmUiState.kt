@@ -3,6 +3,7 @@ package com.quran.alarm.alarm.ui.viewmodel
 import com.quran.alarm.alarm.data.device.DeviceReadinessStatus
 import com.quran.alarm.alarm.domain.model.AlarmItem
 import com.quran.alarm.alarm.domain.model.KhatmaForecast
+import com.quran.alarm.alarm.domain.model.SurahWirdForecast
 
 /**
  * Immutable UI State representing the state of the Alarm screen.
@@ -11,6 +12,7 @@ data class AlarmUiState(
     val alarms: List<AlarmItem> = emptyList(),
     val isLoading: Boolean = false,
     val khatmaProgress: KhatmaForecast? = null,
+    val surahWirdProgress: SurahWirdForecast? = null,
     val nextAlarmCountdown: String = "",
     val editingAlarm: AlarmItem? = null,
     val isAddEditDialogOpen: Boolean = false,

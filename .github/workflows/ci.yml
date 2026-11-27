@@ -71,4 +71,50 @@ jobs:
       - name: Run Unit Tests, Lint & Release R8 Build
         run: |
           test -f "./gradlew" || { echo "ERROR: gradlew missing!"; exit 1; }
-          ./gradlew testDebugUnitTest lintDebug assembleRelease --stacktrace
+          ./gradlew testDebugUnitTest lintDebug assembleRelease assembleDebugAndroidTest --stacktrace
+
+      - name: Upload Build APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: quran-alarm-apks
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/debug/*.apk
+
+  android-instrumented-test:
+    name: Android Emulator Instrumented UI Tests (API 30)
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Enable KVM for Android Emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Make Gradle Wrapper Executable
+        run: chmod +x gradlew
+
+      - name: Run Instrumented UI Tests on Android Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew connectedDebugAndroidTest --stacktrace
