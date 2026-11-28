@@ -26,3 +26,11 @@ Thumbs.db
 *.jks
 *.keystore
 keystore.properties
+
+# iOS & Xcode
+ios/GeneratedResources/
+ios/*.xcodeproj/
+ios/build/
+ios/DerivedData/
+xcuserdata/
+*.xcresult/

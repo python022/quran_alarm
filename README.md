@@ -1,6 +1,6 @@
-# منبه القران الكريم (Quran Alarm)
+# منبه القران الكريم (Quran Alarm) — Android & iOS
 
-تطبيق أندرويد مفتوح المصدر يربط إيقاف المنبه بقراءة الورد اليومي المحدد من القرآن الكريم، ويعمل دون اتصال بالإنترنت وبلا إعلانات أو أدوات تتبع.
+تطبيق مفتوح المصدر لنظامي **Android** و**iOS (iPhone)** يربط إيقاف المنبه بقراءة الورد اليومي المحدد من القرآن الكريم، ويعمل دون اتصال بالإنترنت وبلا إعلانات أو أدوات تتبع.
 
 ---
 
@@ -14,28 +14,62 @@
   - دعم **الورد المتسلسل** (الانتقال تلقائياً إلى الجزء التالي بعد إتمام القراءة) أو **الورد الثابت**.
 - **ضبط المنبه والصوت:**
   - اختيار الوقت بعجلات تمرير (12 ساعة مع ص/م) وحساب الوقت المتبقي حتى موعد الرنين.
-  - أربع نغمات مدمجة (`أذان الفجر`، `تكبيرات العيد`، `نغمة هادئة`، `تنبيه قرآني`) إضافةً إلى إمكانية اختيار نغمة من الهاتف أو ملف صوتي محلي.
+  - أربع نغمات مدمجة (`أذان الفجر`، `تكبيرات العيد`، `نغمة هادئة`، `تنبيه قرآني`) إضافةً إلى إمكانية اختيار ملف صوتي محلي.
   - إمكانية التأجيل لمدة 5 دقائق من شاشة الرنين، وكتم الصوت والاهتزاز فور بدء قراءة الورد.
 - **الموثوقية والخصوصية:**
-  - جدولة عبر `AlarmManager.setAlarmClock()` مع إعادة الجدولة بعد إعادة تشغيل الجهاز ودعم `Direct Boot`.
-  - معالج إرشادي لتفعيل أذونات العرض فوق التطبيقات واستثناء تحسين البطارية حسب الشركة المصنعة.
-  - لا يطلب إذن الإنترنت (`android.permission.INTERNET`) ولا يحتوي على أي مكتبات إعلانات أو تتبع.
+  - يعمل **100% بدون إنترنت** (`Offline / Air-Gapped`): بدون إذن `INTERNET` على أندرويد، ومع `NSAllowsArbitraryLoads = false` وملف `PrivacyInfo.xcprivacy` على iOS.
+  - على أندرويد: جدولة عبر `AlarmManager.setAlarmClock()` مع إعادة الجدولة بعد إعادة التشغيل ودعم `Direct Boot` ومعالج أذونات الشركات المصنعة.
+  - على الآيفون (iOS): جدولة إشعارات حساسة للوقت (`Time-Sensitive Notifications`) مع نغمات `.caf` مدمجة وتشغيل صوتي عبر `AVAudioSession (.playback)` وإبقاء الشاشة مضاءة أثناء التلاوة.
 
 ---
 
-## التقنيات المستخدمة ومتطلبات التشغيل
+## نسخة الآيفون (iOS) — البنية والتشغيل للمطورين
 
-- **اللغة والواجهات:** Kotlin، Jetpack Compose، Material 3.
-- **إدارة الحالة والبيانات:** ViewModel، Kotlin Coroutines / StateFlow، SQLite محلي وSharedPreferences.
-- **الحد الأدنى للنظام:** Android 8.0 (API 26) — الإصدار المستهدف: Android 15 (API 35).
+تتشارك نسخة iOS نفس المصحف الشريف (`604` صفحة WebP + `ayahinfo.db`) وخطوط `Cairo` والنغمات الصوتية مباشرة من مجلدات أندرويد عبر سكربت التحضير، دون تضخيم المستودع بتكرار الملفات الثنائية.
+
+### المتطلبات (macOS)
+- Xcode 15+ مع iOS Simulator
+- [XcodeGen](https://github.com/yonaskool/XcodeGen) (`brew install xcodegen`)
+- [FFmpeg](https://ffmpeg.org/) (`brew install ffmpeg`)
+
+### أوامر التحضير والبناء والاختبار (iOS)
+
+1. **تحضير الأصول المشتركة وتوليد مشروع Xcode:**
+   ```bash
+   chmod +x ios/scripts/*.sh
+   ./ios/scripts/prepare_ios_resources.sh
+   (cd ios && xcodegen generate)
+   ```
+
+2. **تشغيل اختبارات الوحدة (`XCTest`) وواجهة المستخدم (`XCUITest`) على محاكي iPhone:**
+   ```bash
+   xcodebuild test \
+     -project ios/QuranAlarm.xcodeproj \
+     -scheme QuranAlarm \
+     -destination 'platform=iOS Simulator,name=iPhone 16'
+   ```
+
+3. **بناء حزمة IPA غير موقعة لأجهزة iOS:**
+   ```bash
+   xcodebuild build \
+     -project ios/QuranAlarm.xcodeproj \
+     -scheme QuranAlarm \
+     -configuration Release \
+     -sdk iphoneos \
+     -derivedDataPath ios/DerivedData \
+     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+   ./ios/scripts/package_unsigned_ipa.sh \
+     ios/DerivedData/Build/Products/Release-iphoneos/QuranAlarm.app \
+     ios/build/QuranAlarm-unsigned.ipa
+   ```
 
 ---
 
-## البناء والاختبار للمطورين
+## نسخة أندرويد (Android) — البناء والاختبار للمطورين
 
-### المتطلبات
-- JDK 17
-- Android SDK (API 35)
+### التقنيات والمتطلبات
+- **اللغة والواجهات:** Kotlin، Jetpack Compose، Material 3 (Android 8.0 API 26 إلى Android 15 API 35).
+- **المتطلبات:** JDK 17 وAndroid SDK (API 35).
 
 ### الأوامر
 
@@ -68,6 +102,12 @@
    ./gradlew assembleRelease
    ```
    *(الناتج في `app/build/outputs/apk/release/app-release.apk`)*
+
+---
+
+## خارطة الطريق
+
+راجع ملف [roadmap.md](roadmap.md) للاطلاع على مراحل تنفيذ نسخة iOS وحالة الإنجاز والاختبار.
 
 ---
 

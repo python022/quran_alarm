@@ -1,0 +1,150 @@
+name: iOS CI & Simulator Quality Gates
+
+on:
+  push:
+    branches: [ main, 'ios-*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  verify-ios-privacy:
+    name: Verify iOS Zero-Network & Privacy Constraints
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Verify Zero Network APIs in iOS Swift Sources
+        run: |
+          echo "Checking ios/QuranAlarm Swift sources for prohibited network APIs..."
+          if grep -rnE "URLSession|NWConnection|WKWebView|CFNetwork|NSURLConnection|CFSocket|http://|https://" ios/QuranAlarm/ --include="*.swift" 2>/dev/null; then
+            echo "ERROR: Prohibited network API or URL found in iOS production sources!"
+            exit 1
+          fi
+          echo "PASS: iOS production Swift sources are 100% air-gapped."
+
+      - name: Verify Info.plist & Privacy Manifest
+        run: |
+          python3 - <<'PY'
+          import plistlib
+          with open("ios/QuranAlarm/Info.plist", "rb") as f:
+              info = plistlib.load(f)
+          ats = info.get("NSAppTransportSecurity", {})
+          assert ats.get("NSAllowsArbitraryLoads") is False, "NSAllowsArbitraryLoads must be false"
+          fonts = info.get("UIAppFonts", [])
+          for required in ["cairo_regular.ttf", "cairo_medium.ttf", "cairo_semibold.ttf", "cairo_bold.ttf"]:
+              assert required in fonts, f"Missing {required} in UIAppFonts"
+
+          with open("ios/QuranAlarm/PrivacyInfo.xcprivacy", "rb") as f:
+              priv = plistlib.load(f)
+          assert priv.get("NSPrivacyTracking") is False, "NSPrivacyTracking must be false"
+          assert priv.get("NSPrivacyCollectedDataTypes") == [], "NSPrivacyCollectedDataTypes must be empty"
+          print("PASS: Info.plist and PrivacyInfo.xcprivacy verified.")
+          PY
+
+      - name: Verify Essential iOS Repository Files
+        run: |
+          test -f roadmap.md || exit 1
+          test -f ios/project.yml || exit 1
+          test -f ios/scripts/prepare_ios_resources.sh || exit 1
+          test -f ios/scripts/package_unsigned_ipa.sh || exit 1
+          test -f ios/QuranAlarm/Assets.xcassets/AppIcon.appiconset/AppIcon.png || exit 1
+          echo "PASS: Essential iOS files are intact."
+
+  ios-build-and-test:
+    name: Build, XCTest, XCUITest & Unsigned IPA (iPhone Simulator + iOS Device)
+    runs-on: macos-latest
+    needs: verify-ios-privacy
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies (XcodeGen & FFmpeg)
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+          fi
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg
+          fi
+          xcodebuild -version
+          xcodegen --version
+          ffmpeg -version | head -n 1
+
+      - name: Prepare Shared iOS Resources & Generate Xcode Project
+        run: |
+          sed -i '' 's/\r$//' ios/scripts/*.sh
+          chmod +x ios/scripts/*.sh
+          ./ios/scripts/prepare_ios_resources.sh
+          cd ios
+          xcodegen generate
+
+      - name: Boot Available iPhone Simulator
+        id: sim
+        run: |
+          SIM_UDID=$(python3 - <<'PY'
+          import json, subprocess, re
+          raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+          data = json.loads(raw)
+          candidates = []
+          for runtime, devs in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              m = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              ver = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+              for d in devs:
+                  if d.get("isAvailable") and "iPhone" in d.get("name", ""):
+                      candidates.append((ver, "Pro" in d.get("name", ""), d.get("name", ""), d["udid"]))
+          candidates.sort(reverse=True)
+          if not candidates:
+              raise SystemExit("No available iPhone simulator found")
+          print(candidates[0][3])
+          PY
+          )
+          echo "udid=$SIM_UDID" >> "$GITHUB_OUTPUT"
+          echo "Booting iPhone simulator UDID: $SIM_UDID"
+          xcrun simctl boot "$SIM_UDID" || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+
+      - name: Run Unit Tests (XCTest) & Simulator UI Tests (XCUITest)
+        run: |
+          mkdir -p ios/build
+          rm -rf ios/build/TestResults.xcresult
+          xcodebuild test \
+            -project ios/QuranAlarm.xcodeproj \
+            -scheme QuranAlarm \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath ios/DerivedData \
+            -parallel-testing-enabled NO \
+            -resultBundlePath ios/build/TestResults.xcresult
+
+      - name: Build Unsigned Release iOS App & Package IPA
+        run: |
+          xcodebuild build \
+            -project ios/QuranAlarm.xcodeproj \
+            -scheme QuranAlarm \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+          ./ios/scripts/package_unsigned_ipa.sh \
+            ios/DerivedData/Build/Products/Release-iphoneos/QuranAlarm.app \
+            ios/build/QuranAlarm-unsigned.ipa
+          ls -lh ios/build/QuranAlarm-unsigned.ipa
+
+      - name: Upload Test Results Bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quran-alarm-ios-test-results
+          path: ios/build/TestResults.xcresult
+
+      - name: Upload Unsigned iOS IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: quran-alarm-ios-ipa
+          path: ios/build/QuranAlarm-unsigned.ipa

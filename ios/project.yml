@@ -1,0 +1,96 @@
+name: QuranAlarm
+options:
+  bundleIdPrefix: com.quran
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    DEVELOPMENT_LANGUAGE: ar
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    AD_HOC_CODE_SIGNING_ALLOWED: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  QuranAlarm:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: QuranAlarm
+        excludes:
+          - Info.plist
+      - path: GeneratedResources/quran
+        type: folder
+        buildPhase: resources
+      - path: GeneratedResources/Fonts
+        type: group
+        buildPhase: resources
+      - path: GeneratedResources/Sounds
+        type: group
+        buildPhase: resources
+    dependencies:
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.quran.alarm
+        PRODUCT_NAME: QuranAlarm
+        INFOPLIST_FILE: QuranAlarm/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+
+  QuranAlarmTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: QuranAlarmTests
+    dependencies:
+      - target: QuranAlarm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.quran.alarm.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/QuranAlarm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/QuranAlarm"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  QuranAlarmUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: QuranAlarmUITests
+    dependencies:
+      - target: QuranAlarm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.quran.alarm.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: QuranAlarm
+        USES_XCTRUNNER: YES
+
+schemes:
+  QuranAlarm:
+    build:
+      targets:
+        QuranAlarm: all
+        QuranAlarmTests: [test]
+        QuranAlarmUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - QuranAlarmTests
+        - QuranAlarmUITests
+    archive:
+      config: Release
