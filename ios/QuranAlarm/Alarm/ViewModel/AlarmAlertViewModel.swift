@@ -187,7 +187,12 @@ public final class AlarmAlertViewModel: ObservableObject {
 
             let restoredStage = restored.flatMap { AlarmAlertStage(rawValue: $0.stageName) }
             let initialStage = initialStageOverride ?? restoredStage ?? .ringing
-            let initialPage = restored?.currentPage.flatMap { computedWirdPages.contains($0) ? $0 : nil } ?? safeStartPage
+            let initialPage: Int
+            if let savedPage = restored?.currentPage, computedWirdPages.contains(savedPage) {
+                initialPage = savedPage
+            } else {
+                initialPage = safeStartPage
+            }
             let initialCompleted = Set((restored?.completedPages ?? []).filter { computedWirdPages.contains($0) })
             if let restored {
                 for (k, v) in restored.visitedLineByPage {
